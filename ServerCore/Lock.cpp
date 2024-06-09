@@ -1,16 +1,21 @@
 #include "pch.h"
 #include "Lock.h"
 #include "CoreTLS.h"
+#include "DeadLockProfiler.h"
 
 // W -> W (O)
 // W -> R (O)
 // R -> W (X)
 // R -> R (O) <- ReadCount 증가
 
-void Lock::WriteLock()
+void Lock::WriteLock(const char* _pName)
 {
-	// 동일한 쓰레드가 소유하고 있다면 무조건 성공
+#if _DEBUG // 디버그 모드에서 데드락 탐지
+	GDeadLockProfiler->PushLock(_pName);
 
+#endif
+
+	// 동일한 쓰레드가 소유하고 있다면 무조건 성공
 	// 현재 Lock을 걸어놓고 있는 쓰레드의 ID를 확인한다.
 	const uint32 iLockThreadID = (m_LockFlag.load() & WRITE_THREAD_MASK) >> 16;
 	
@@ -65,8 +70,13 @@ void Lock::WriteLock()
 	}
 }
 
-void Lock::WriteUnLock()
+void Lock::WriteUnLock(const char* _pName)
 {
+#if _DEBUG // 디버그 모드에서 데드락 탐지
+	GDeadLockProfiler->PopLock(_pName);
+
+#endif
+
 	/* ReadLock을 모두 풀어주기 전까지 WriteUnlock은 불가능하다 ReadLock을
 	걸어놓은 상태라는 것은 WriteLock을 걸어놓을 수 없는 상태였다는 뜻 */
 	if ((m_LockFlag.load() & READ_COUNT_MASK) != 0) 
@@ -84,8 +94,14 @@ void Lock::WriteUnLock()
 
 }
 
-void Lock::ReadLock()
+void Lock::ReadLock(const char* _pName)
 {
+#if _DEBUG // 디버그 모드에서 데드락 탐지
+	GDeadLockProfiler->PushLock(_pName);
+
+#endif
+
+
 	// 동일한 쓰레드가 소유하고 있다면 무조건 성공
 	const uint32 iLockThreadID = (m_LockFlag.load() & WRITE_THREAD_MASK) >> 16;
 	if (LThreadID == iLockThreadID)
@@ -127,8 +143,14 @@ void Lock::ReadLock()
 
 }
 
-void Lock::ReadUnLock()
+void Lock::ReadUnLock(const char* _pName)
 {
+#if _DEBUG // 디버그 모드에서 데드락 탐지
+	GDeadLockProfiler->PopLock(_pName);
+
+#endif
+
+
 	/* fetch_sub함수는 인자값으로 받아준 값을 뺀 결과값의 이전 값을 반환하기 
 	때문에 만약 값이 0이라면 Lock, UnLock의 짝이 맞지 않다는 뜻이다 */
 	if ((m_LockFlag.fetch_sub(1) & READ_COUNT_MASK) == 0)
