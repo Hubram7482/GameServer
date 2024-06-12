@@ -11,6 +11,7 @@
 int main()
 {
 	
+	vector<int> vv;
 
 	return 0;
 }
