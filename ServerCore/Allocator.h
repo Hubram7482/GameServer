@@ -34,4 +34,35 @@ public:
 
 };
 
+/*---------------------
+	 STLAllocator
+-----------------------*/
 
+template<typename T>
+class STLAllocator
+{
+public:
+	using value_type = T;
+
+	STLAllocator() {}
+
+	template<typename Other>
+	STLAllocator(const STLAllocator<Other>&) {}
+
+	// _Count는 객체의 개수
+	T* allocate(size_t _Count)
+	{
+		// 메모리 사이즈 계산
+		const int32 iSize = static_cast<int32>(_Count * sizeof(T));
+		return static_cast<T*>(Xalloc(iSize));
+	}
+
+	void deallocate(T* _pPtr, size_t _Count)
+	{
+		Xrelease(_pPtr);
+	}
+
+private:
+
+
+};
