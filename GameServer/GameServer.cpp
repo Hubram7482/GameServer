@@ -8,10 +8,14 @@
 #include <queue>
 #include "ThreadManager.h"
 #include "Allocator.h"
+#include "LockFreeStack.h"
+
+
 
 int main()
 {
-
 	
+
+
 	return 0;
 }
