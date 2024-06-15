@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Allocator.h"
+#include "Memory.h"
 
 /*---------------------
 	  BaseAllocator
@@ -68,4 +69,18 @@ void StompAllocator::Release(void* _pPtr)
 	// 메모리 영역을 해제한다면 두 번째 인자값은 무조건 0
 	// iBaseAddRess를 다시 void*로 변환해서 인자값으로 넘겨준다
 	VirtualFree(reinterpret_cast<void*>(iBaseAddRess), 0, MEM_RELEASE);
+}
+
+/*-------------------
+	PoolAllocator
+-------------------*/
+
+void* PoolAllocator::Alloc(int32 size)
+{
+	return GMemory->Allocate(size);
+}
+
+void PoolAllocator::Release(void* ptr)
+{
+	GMemory->Release(ptr);
 }

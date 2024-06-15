@@ -69,6 +69,11 @@ void* Memory::Allocate(int32 _iSize)
 
 	const int32 iAllocSize = _iSize + sizeof(MemoryHeader);
 
+
+#ifdef _STOMP
+	pHeader = reinterpret_cast<MemoryHeader*>(StompAllocator::Alloc(iAllocSize));
+
+#else
 	if (iAllocSize > MAX_ALLOC_SIZE)
 	{
 		// 메모리 풀링 최대 크기를 넘어서면 일반 할당
@@ -76,15 +81,15 @@ void* Memory::Allocate(int32 _iSize)
 		StompAllocator의 방식은 메모리가 필요 없어지면 운영체제를 통해 해당 메모리를
 		완전히 해제하여 더 이상 접근을 하지 못 하게 하는 것이었는데 메모리 풀링은
 		재사용하기 위해 메모리 공간을 보관하는 방식이다 보니까 조합이 좋지 않다 */
-		pHeader = reinterpret_cast<MemoryHeader*>(malloc(iAllocSize));
-		
+		pHeader = reinterpret_cast<MemoryHeader*>(_aligned_malloc(iAllocSize, SLIST_ALIGNMENT));
 	}
 	else
 	{
 		// 메모리 풀에서 꺼내온다
 		pHeader = m_pPoolTable[iAllocSize]->Pop();
-
 	}
+#endif	
+	
 
 	// 현재 할당하는 메모리의 크기를 기입(디버그 용도)
 	return MemoryHeader::AttachHeader(pHeader, iAllocSize);
@@ -101,15 +106,22 @@ void Memory::Release(void* _pPtr)
 	// iAllocSize가 0인 경우라면 Crash
 	ASSERT_CRASH(iAllocSize > 0);
 
+
+
+#ifdef _STOMP
+	StompAllocator::Release(pHeader);
+
+#else
 	if (iAllocSize > MAX_ALLOC_SIZE)
 	{
 		// 메모리 풀링 최대 크기를 벗어나면 일반 해제
-		free(pHeader);
+		_aligned_free(pHeader);
 	}
 	else
 	{
 		// 메모리 풀에 반납한다
 		m_pPoolTable[iAllocSize]->Push(pHeader);
 	}
-
+#endif
+	
 }

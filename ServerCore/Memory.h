@@ -64,3 +64,9 @@ void xdelete(Type* _pObj)
 	xrelease(_pObj);
 }
 
+// 생성/삭제 방식을 지정하도록
+template<typename Type>
+shared_ptr<Type> MakeShared()
+{
+	return shared_ptr<Type>{ xnew<Type>(), xdelete<Type> };
+}
