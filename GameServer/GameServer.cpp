@@ -114,7 +114,6 @@ int main()
 		정리하자면 Listen소켓은 그저 안내원의 역할(통신을 받아주는)로써만
 		사용하는 소켓이고, accept의 반환값인 SOCKET이 클라이언트와
 		연결되어서 패킷을 주고 받을 수 있는 그런 역할이다 */
-
 		SOCKET ClientSocket = ::accept(ListenSocket, (SOCKADDR*)&ClientAddR, &iAddRLen);
 		
 		if (ClientSocket == INVALID_SOCKET)
@@ -132,6 +131,27 @@ int main()
 		cout << "Client Connected IP = " << IPAddRes << '\n';
 
 		// TODO
+		while (true)
+		{
+			char RecvBuffer[1000];
+
+			this_thread::sleep_for(1s);
+
+			/* recv함수의 반환값은 수신받은 데이터의 Byte크기를 의미한다
+			따라서, 받아온 데이터 크기가 음수라면 문제가 발생한 것 */
+			int32 iRecvLen = recv(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0);
+			if (iRecvLen <= 0)
+			{
+				int32 iErrCode = WSAGetLastError();
+				cout << "Recv ErrorCode" << iErrCode << '\n';
+				return 0;
+			}
+
+			// 데이터를 정상적으로 수신받았다면 로그 출력
+			cout << "Recv Data! Data = " << RecvBuffer << '\n';
+			cout << "Recv Data! Len = " << iRecvLen << '\n';
+
+		}
 	}
 
 	// 윈속 종료(참고로 WSAStartup함수 호출 횟수 만큼 호출을 해줘야 한다)

@@ -119,7 +119,29 @@ int main()
 
 	while (true)
 	{
-		// TODO 
+		/* send함수를 사용하여 데이터를 전송한다
+		첫 번째 인자값은 데이터를 전송할 소켓을 받아주고,
+		두 번째 인자값은 버퍼의 포인터를 받아주는데 여기서 
+		버퍼란 데이터를 저장하고 있는 배열을 의미한다
+		세 번째 인자값은 전송할 데이터의 크기를 받아준다
+		네 번째 인자값은 옵션을 설정하는 부분인데 거의 사용하지
+		않기 때문에 그냥 0을 넣으면된다 */
+		char SendBuffer[100] = "Hello World";
+
+		for (int i = 0; i < 10; ++i)
+		{
+			int32 iResultCode = send(ClientSocket, SendBuffer, sizeof(SendBuffer), 0);
+			if (iResultCode == SOCKET_ERROR)
+			{
+				int32 iErrCode = WSAGetLastError();
+				cout << "Send ErrorCode" << iErrCode << '\n';
+				return 0;
+			}
+		}
+
+		// 데이터를 정상적으로 전송되었다면 로그 출력
+		cout << "Send Data! Len = " << sizeof(SendBuffer) << '\n';
+
 
 		this_thread::sleep_for(1s);
 	}
