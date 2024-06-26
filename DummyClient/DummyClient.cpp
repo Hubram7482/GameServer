@@ -8,6 +8,12 @@
 #pragma comment(lib, "ws2_32.lib")
 
 
+void HandleError(const char* _Cause)
+{
+	int32 iErrCode = WSAGetLastError();
+	cout << _Cause << " ErrorCode : " << iErrCode << '\n';
+}
+
 int main()
 {
 	// 윈속 라이브러리 초기화(ws2_32 라이브러리 초기화)
@@ -36,14 +42,11 @@ int main()
 	해당하는 소켓 리소스를 이용할 수 있도록 해주는 개념이다 
 	간략하게 SCOKET라는 정수가 사실상 포인터처럼 실제 
 	리소스를 가르키고 있는 상태라는 느낌으로 이해하면 된다 */
-	SOCKET ClientSocket = socket(AF_INET, SOCK_STREAM, 0); 
+	SOCKET ClientSocket = socket(AF_INET, SOCK_DGRAM, 0); 
 	// 실패했는지 확인
 	if (ClientSocket == INVALID_SOCKET)
 	{
-		/* 실패한 경우 어떠한 이유로 실패했는지를 알려주는 
-		에러 메세지를 받아올 수 있다 */
-		int32 iErrCode = WSAGetLastError();
-		cout << "Socket Error : " << iErrCode << '\n';
+		HandleError("Socket");
 		return 0;
 	}
 
@@ -104,19 +107,13 @@ int main()
 	맞춰주겠다는 함수를 사용한다고 생각하면 된다(반대 버전도 있다) */
 	ServerAddR.sin_port = htons(7777);
 
-	/* 두 번째 인자를 캐스팅해서 넘겨주는 이유는 connect함수가 그렇게 되어 있기 때문이다.
-	주소 체계는 IPv4, IPv6 등 다양한 타입이 있기 때문에 두 번째 인자와 세 번째 인자값으로
-	ServerAddR를 캐스팅 해서 넘겨주고, 주소 체계 타입의 사이즈를 넘겨줘서 주소 체계에 맞는
-	주소를 받아주도록 하는 것이다(설명이 애매함) */
-	if (connect(ClientSocket, (SOCKADDR*)&ServerAddR, sizeof(ServerAddR)) == SOCKET_ERROR)
-	{
-		int32 iErrCode = WSAGetLastError();
-		cout << "Connect ErrorCode" << iErrCode << '\n';
-		return 0;
-	}
-	// 연결에 성공했다면 이제부터 데이터 송수신이 가능하다는 의미이다.
-	cout << "Connected To Server" << '\n';
+	// Connected UDP
+	// 연결한다고 해서 TCP와 같은 개념은 아니고, 데이터를 
+	// 보낼 대상자를 미리 지정해놓는 방식이다
+	connect(ClientSocket, (SOCKADDR*)&ServerAddR, sizeof(ServerAddR));
 
+	/* 클라이언트도 마찬가지로 TCP의 경우에는 connect(연결)작업이
+	필요했는데 UDP는 그럴 필요 없이 바로 데이터를 전송하면된다 */
 	while (true)
 	{
 		/* send함수를 사용하여 데이터를 전송한다
@@ -128,20 +125,52 @@ int main()
 		않기 때문에 그냥 0을 넣으면된다 */
 		char SendBuffer[100] = "Hello World";
 
-		for (int i = 0; i < 10; ++i)
+
+		/* sendto, recvfrom과 같은 디폴트 상태로 동작하는 함수를 사용하는 방식을
+		Unconnected UDP라고 말한다. TCP와는 달리 함수에 추가적인 두 개의 인자값을
+		넘겨줘야 하는데 (데이터를 보낼 대상, 데이터 크기)를 넘겨주면 되며 참고로, 
+		sendto함수를 호출하는 시점에 클라이언트의 IP주소랑 포트 번호가 설정이 된다
+		포트 번호는 현재 사용 가능한 포트 중 아무거나 골라서 자동으로 할당이 된다
+		내부적으로 이런 식으로 동작하기 때문에 서버와는 달리 bind를 통해서 자신이
+		어떤 주소인지를 연동하는 작업을 할 필요가 없다(TCP, UDP 둘 다 동일하지만
+		TCP는 send를 할 때 결정되는것이 아니라 connect를 하는 시점에 결정된다) */
+		// int32 iResultCode = sendto(ClientSocket, SendBuffer, sizeof(SendBuffer), 0,
+		// 	(SOCKADDR*)&ServerAddR, sizeof(ServerAddR));
+
+
+		// Connected UDP방식을 사용하면 미리 데이터를 전송할 대상을 지정했기
+		// 때문에, 바로 send함수를 통해서 데이터를 전송하면 된다
+		int32 iResultCode = send(ClientSocket, SendBuffer, sizeof(SendBuffer), 0);
+
+		if (iResultCode == SOCKET_ERROR)
 		{
-			int32 iResultCode = send(ClientSocket, SendBuffer, sizeof(SendBuffer), 0);
-			if (iResultCode == SOCKET_ERROR)
-			{
-				int32 iErrCode = WSAGetLastError();
-				cout << "Send ErrorCode" << iErrCode << '\n';
-				return 0;
-			}
+			HandleError("SendTo");
+			return 0;
 		}
 
 		// 데이터를 정상적으로 전송되었다면 로그 출력
-		cout << "Send Data! Len = " << sizeof(SendBuffer) << '\n';
+		cout << "SendTo Data! Len = " << sizeof(SendBuffer) << '\n';
 
+		SOCKADDR_IN RecvAddR;
+		memset(&RecvAddR, 0, sizeof(RecvAddR));
+		int32 iAddrLen = sizeof(RecvAddR);
+
+		char RecvBuffer[1000];
+		// int iRecvLen = recvfrom(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0,
+		// 	(SOCKADDR*)&ServerAddR, &iAddrLen);
+		
+		// 위 방식은 설명했듯이 Unconnected UDP방식이고 Commected UDP방식을 
+		// 사용할 경우 마찬가지로 recv함수를 사용하면 된다
+		int iRecvLen = recv(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0);
+
+		if (iRecvLen <= 0)
+		{
+			HandleError("SendTo");
+			return 0;
+		}
+
+		cout << "Recv Data! Data = " << RecvBuffer << '\n';
+		cout << "Recv Data! Len = " << iRecvLen << '\n';
 
 		this_thread::sleep_for(1s);
 	}
