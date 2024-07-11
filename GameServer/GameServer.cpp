@@ -33,122 +33,162 @@ int main()
 	{
 		return 0;
 	}
+	/* 블로킹(Blocking) 소켓
+	accept, connect, send, sendto, recv, recvfrom 이러한 함수들은 모두 특정 조건이
+	성립할때까지 대기를 한다는 특징이 있는데, 게임을 제작하는 경우 대기 상황이
+	자주 발생하면 여러가지 문제점이 발생할 수 있으며 이러한 문제점을 완화하고자
+	논블로킹 방식을 사용해야 하는데, 당연하게도 모든 문제가 해결되지는 않지만
+	일부 개선할 수 있다 */
 
-	/* TCP서버의 경우에는 10개의 클라이언트와 통신을 할 경우 1개의 Listen소켓과 
-	10개의 클라이언트 소켓이 필요했는데 UDP는 1개의 소켓만 있으면 충분하다 */
-	SOCKET ServerSocket = socket(AF_INET, SOCK_DGRAM, 0);
-	if (ServerSocket == INVALID_SOCKET)
+
+	// 논블로킹(Non-Blocking)
+	SOCKET ListenSocket = socket(AF_INET, SOCK_STREAM, 0);
+	if (ListenSocket == INVALID_SOCKET)
 	{
 		HandleError("Socket");
 		return 0;
 	}
 
-	/* 소켓이 생성되는 순간	커널 버퍼에 만들어지는 SendBuffer, RecvBuffer의 
-	크기를 변경하거나 다양한 옵션을 설정할 수 있는데 setsocketopt, getsockopt 
-	해당 두 함수를 통해서 설정이 가능하며, 함수의 인자값은 아래와 같다.
-	첫 번째 인자 = 설정할 소켓
-
-	두 번째 인자 = 레벨(옵션을 해석하고 처리할 주체를 의미하는데 예를 들어서
-	소켓이 처리하도록 설정할 경우 SOL_SOCKET을 입력하면 되고, 그게 아니라 
-	IPv4단계에서 처리하도록 설정할 경우에는 IPPROTO_IP를 입력하면 되고, 
-	TCP 프로토콜 단계일 경우에는 IPPROTO_TCP 이런 식으로 옵션을 입력한다)
-
-	세 번째 인자 = 설정해준 레벨을 통해 적용할 옵션(SO_KEEPALIVE, SO_LINGER, 
-	SO_SNDBUF(송신 버퍼 크기), SO_RCVBUF(수신 버퍼 크기), SO_REUSEADDR, 기타 등등)
-	
-	SO_KEEPALIVE = 주기적으로 연결 상태를 확인할지에 대한 여부(TCP 전용)
-	SO_KEEPALIVE가 필요한 이유는 통신 중인 상대방이 아무런 동작을 하지 않는
-	경우가 발생할 수 있는데, 이게 정말로 송수신할 데이터가 없어서 그런 것인지
-	연결이 끊어져서 그런 것인지를 알 수가 없기 때문에 주기적으로 TCP프로토콜
-	단계에서 연결 상태를 계속 확인하는 것이다.
-
-	SO_LINGER = 지연하다는 뜻인데, 송신 버퍼에 있는 데이터를 보낼 것인지 
-	그게 아니면 데이터를 날려버릴지를 설정하는 옵션이며, 이게 무슨 의미냐면
-	예를 들어서 Send함수를 호출했다가 바로 이어서 closesocket함수를 사용했을
-	경우 send함수를 통해서 이미 커널 버퍼에 SendBuffer에 대한 정보가 저장이
-	되어 있을 것인데 해당 데이터를 어떻게 처리할지에 대한 옵션을 의미한다
-	SO_LINGER의 내부를 살펴보면 u_short타입의 데이터 두 개를 받아주고 있는데
-	각각 onoff, linger라는 이름으로 되어 있으며 onoff의 경우에는 0이면 
-	closesocket를 바로 반환하고 1로 설정이 되어 있으면 linger초만큼 대기를
-	하게 된다(default는 0) 따라서 linger는 대기 시간을 의미한다
-
-	SO_SNDBUF = 송신 버퍼 크기
-	SO_RCVBUF = 수신 버퍼 크기
-	위 두개의 옵션은 둘 다 int타입의 데이터를 받아주며, 이름 그대로 버퍼의
-	크기를 알고 싶을때 사용하면 된다
-
-	SO_REUSEADDR = 이름 그대로 IP주소 및 포트를 재사용한다는 의미이다
-	해당 옵션이 왜 필요한지 간략하게 정리하자면 TCP에서 소켓을 만든 다음
-	주소를 만들어서 바인드를 통해 해당 주소에 특정 IP주소와 포트 번호를 
-	묶어 줬는데 경우에 따라서 해당 주소가 이미 사용중이거나 서버를 강제종료
-	하고 다시 켜거나 하는 상황이라서 정리가 충분히 되지 않은 상황이 있을 수
-	있는데, 이런 상황일 경우 바인딩이 실패해서 대략 3분 정도를 기다리지 않으면
-	서버를 띄울 수가 없게 된다. 이러한 문제를 방지하고자 강제로 해당 주소를
-	재사용하는 방법이 있는데 이게 바로 SO_REUSEADDR 옵션이다(세팅 하는게 좋음)
-
-	네 번째 인자 = 각 옵션 마다 필요한 타입
-	다섯 번째 인자 = 옵션 타입의 크기
-	여기서 네 번째, 다섯 번째 인자값은 추가 설명이 전혀 없고 그냥 넣어주면
-	된다고만 말하는데, 아마도 뭔가 처리 여부를 확인하는게 아닐까 싶음 */
-
-	// SO_KEEPALIVE 예시
-	// bool bEnable = true;
-	// setsockopt(ServerSocket, SOL_SOCKET, SO_KEEPALIVE, (char*)&bEnable, sizeof(bEnable));
-
-	// SO_LINGER 예시
-	LINGER linger;
-	linger.l_onoff = 1;
-	linger.l_linger = 5;
-	setsockopt(ServerSocket, SOL_SOCKET, SO_LINGER, (char*)&linger, sizeof(linger));
-
-	/* 참고로 closesocket함수를 바로 호출하면 안되고 연결중인 상대방에게 
-	연결을 끊겠다고 미리 알려주고 호출을 해야하며 shutdown함수를 통해서
-	해당 작업을 처리하며 함수 인자값은(소켓, 셧다운 방식)이다. 
-	셧다운 방식은 SD_SEND(Send를 막는다), SD_RECEIVE(recv를 막는다),
-	SD_BOTH(둘 다 막는다)등이 있다(사실은 shutdown을 쓰지 않아도 
-	문제는 거의 발생하지 않는다고 한다 */
-	//shutdown(ServerSocket, SD_SEND);
-	
-	int32 iSendBufferSize;
-	int32 iSendOptionLen = sizeof(iSendBufferSize);
-	// 함수 인자값을 왜 이런 형태로 받아주는지 모른다고함(MS에서 지정한대로 쓰는듯)
-	getsockopt(ServerSocket, SOL_SOCKET, SO_SNDBUF, (char*)&iSendBufferSize, &iSendOptionLen);
-	cout << "송신 버퍼 크기 : " << iSendBufferSize << '\n';
-
-	int32 iRecvBufferSize;
-	int32 iRecvOptionLen = sizeof(iRecvBufferSize);
-	getsockopt(ServerSocket, SOL_SOCKET, SO_RCVBUF, (char*)&iRecvBufferSize, &iRecvOptionLen);
-	cout << "수신 버퍼 크기 : " << iRecvBufferSize << '\n';
-
-	// SO_REUSEADDR(IP 주소 및 포트 번호 재사용)
+	// 논블로킹 방식을 사용하려면 아래와 같이 사용하면 된다는데, 자세한
+	// 설명은 따로 없고 그냥 이렇게 사용하면 된다고한다(궁금하면 문서)
+	u_long On = 1;
+	if (ioctlsocket(ListenSocket, FIONBIO, &On) == INVALID_SOCKET)
 	{
-		// 해당 옵션에 대한 설명은 위에 작성해놨음
-		bool bEnable = true;
-		setsockopt(ServerSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&bEnable, sizeof(bEnable));
+		HandleError("Socket");
+		return 0;
 	}
 
+	SOCKADDR_IN ServerAddr;
+	memset(&ServerAddr, false, sizeof(ServerAddr));
 
-	// IPPROTO_TCP
-	// TCP_NODELAY = Nagle 알고리즘 작동 여부
-	/* Nagle 알고리즘을 간략하게 설명하자면 데이터가 충분히 크면 전송하고, 
-	그렇지 않다면 데이터가 충분히 쌓일때까지 대기한다는 개념이며, 최대한 
-	데이터를 쌓아서 전송함으로써 회선 낭비를 줄이고 효율성을 높이는 방식 
-	장점은 작은 패킷이 불필요하게 많이 생성되는 것을 방지한다는 점이지만
-	단점으로는 반응 시간의 손해를 보게 된다는 특징이 있다(대기 상황)
-	그래서 일반적으로 게임에서는 해당 Nagle을 항상 꺼주는게 기본 상태이고
-	정말 필요할 경우에만 켜줘야 한다 */
+	ServerAddr.sin_family = AF_INET;
+	ServerAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	// inet_pton(AF_INET, "192.168.0.5", &ServerAddr.sin_addr);
+
+	ServerAddr.sin_port = htons(7777);
+
+	if (::bind(ListenSocket, (SOCKADDR*)&ServerAddr, sizeof(ServerAddr)) == SOCKET_ERROR)
 	{
-		/* Nagle 알고리즘을 사용하지 않는다면 작은 패킷들이 너무 많아지지 
-		않을까 싶지만, 이걸 방지하기 위해 데이터를 쌓아서 전송하는 작업은 
-		유저 레벨에서도 충분히 가능하며 이렇게 관리하는게 더 효율적이다
-		그래서 게임에서는 Nagle 알고리즘을 최대한 사용하지 않도록 
-		TCP_NODELAY를 true로 설정하는게 일반적인 상황이라고 볼 수 있다 */
-		bool bEnable = true;
-		setsockopt(ServerSocket, IPPROTO_TCP, TCP_NODELAY, (char*)&bEnable, sizeof(bEnable));
+		HandleError("Bind");
+		return 0;
 	}
 
-	closesocket(ServerSocket);
+	// 명시적으로 숫자를 입력하지 않고 알아서 최대 숫자로 골라달라는 옵션(SOMAXCONN)
+	if (listen(ListenSocket, SOMAXCONN) == SOCKET_ERROR)
+	{
+		HandleError("Listen");
+		return 0;
+	}
 
+	cout << "Accept" << '\n';
+
+#pragma region 블로킹 방식
+	{
+		/* 블로킹 소켓 방식에서의 Accept 방식의 경우에는 아래와 같이 클라이언트의
+		주소를 받아오고 있었고 받아온 ClientSocket이 INVAILD_SOCKET이 발생하면
+		무조건 문제가 발생했다고 판별하고 있었는데 논블로킹 방식에서는 이러한
+		상황에서 무조건 문제 상황이라고 확정지을 수가 없다.왜냐하면 애초에
+		논블로킹 방식은 대기 상황을 만들지 않기 때문에 성공적으로 완료되지는
+		않았지만 이게 꼭 문제가 있어서 발생한 상황이 아닐 수도 있다는 것이다.
+		따라서, 조건처리를 한 번 더 해줘야 한다.
+
+		SOCKADDR_IN ClientAddr;
+		int32 iAddrLen = sizeof(ClientAddr);
+
+		SOCKET ClientSocket = accept(ListenSocket, (SOCKADDR*)&ClientAddr, &iAddrLen);
+		if (ClientSocket != INVAILD_SOCKET)
+		{
+			문제상황 발생(블로킹 방식)
+		} */
+	}
+#pragma endregion
+
+#pragma region 논블로킹 방식
+
+	SOCKADDR_IN ClientAddr;
+	int32 iAddrLen = sizeof(ClientAddr);
+
+	while (true)
+	{
+
+		SOCKET ClientSocket = accept(ListenSocket, (SOCKADDR*)&ClientAddr, &iAddrLen);
+		if (ClientSocket == INVALID_SOCKET)
+		{
+			// 또한 WSAGetLastError()함수로 받아온 에러 코드의 타입을 확인해서
+			// 어떠한 에러가 발생했는지 확인하는 것도 유용하다(문서 참고)
+			if (WSAGetLastError() == WSAEWOULDBLOCK)
+			{
+				/* 해당 조건문에 들어왔다는 연결 요청한 클라이언트의 데이터가 아직
+				연결이 되지 않은 상황이지만, 이게 문제 상황은 아니고 대기 상황을
+				방지하고자 강제로 빠져나오게 했는데 빠져나올 때까지 연결이 완료
+				되지는 않았다는 의미이다.따라서, 이러한 경우에는 무한 루프를 통해
+				계속해서 연결을 시도할 것이라서 continue를 통해서 계속 반복한다 */
+				continue;
+			}
+
+			// Error발생
+			break;
+		}
+
+		// 클라이언트 연결 완료
+		cout << "Client Connected" << '\n';
+
+		// Recv의 경우에도 Accept와 동일한 문제가 발생한다
+		while (true)
+		{
+			char RecvBuffer[1000];
+			int32 iRecvLen = recv(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0);
+			/* 블로킹 방식에서는 iRecvLen의 값이 SCOKET_ERROR과 같다면 문제가
+			발생했다고 판단을 했었는데, 이 또한 마찬가지로 Accept와 동일한
+			이유로 무조건 문제 상황은 아니고 무한 반복하면서 계속 Recv(수신)
+			시도하면서 정말 문제가 발생한건지 추가로 조건 처리를 해줘야한다 */
+
+			if (iRecvLen == SOCKET_ERROR)
+			{
+				if (WSAGetLastError() == WSAEWOULDBLOCK)
+					continue;
+
+				break;
+			}
+			else if (iRecvLen == 0)
+			{
+				// 0인 경우 무조건 연결이 끊긴 상황이라서 break
+				break;
+			}
+
+			cout << "Recv Data Len" << iRecvLen << '\n';
+
+			// Send 또한 동일한 문제가 있다
+			while (true)
+			{
+				if (send(ClientSocket, RecvBuffer, iRecvLen, 0) == SOCKET_ERROR)
+				{
+					if (WSAGetLastError() == WSAEWOULDBLOCK)
+						continue;
+
+					break;
+				}
+
+				cout << "Send Data Len = " << iRecvLen << '\n';
+
+				break;
+			}
+		}
+	}
+	
+#pragma endregion 
+
+	/* 블로킹 방식에서 논블로킹 방식으로 전환할 경우 오히려 성능이 더욱 저하가 될 것인데
+	왜냐하면 현재 테스트하는 환경은 1:1로 데이터를 주고 받는 상황이고, 데이터를 송수신
+	하는 경우가 별로 없고 명확한 데이터 송수신 순서가 있디 때문에 계속해서 반복해서 
+	검사를 하는 부분에서 CPU사이클을 많이 소요하기 때문에 성능저하가 발생하는 것이다.
+	따라서 이러한 상황에서는 대기를 하는 것이 더욱 효울적일수 있으며 상황에 맞게
+	적절하게 사용해야 한다는 것이 결론이다.
+
+	블로킹   -> 데이터 송수신 요청이 발생할 때까지 대기
+	논블로킹 -> 데이터 송수신이 발생했는지 계속해서 검사 
+	
+	위와 같은 단점들을 보완하기 위해 사용하는 방식을 소켓 모델이라고 부른다. */
 	WSACleanup();
 
 	return 0;

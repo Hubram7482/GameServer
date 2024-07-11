@@ -25,35 +25,94 @@ int main()
 		return 0;
 	}
 
-	/* 비유하자면 연결을 주고 받을 전화기를 만드는 부분
-	주소 체계(IP주소), 사용 타입, 프로토콜 총 3개의 인자값을 
-	받아주는데, 세 번째 인자값은 세팅하지 않아도된다 
-
-	주소체계 : Address Family (AF_INET = IPv4, AF_INET6 = IPv6)
-	사용타입 : TCP(SOCK_STREAM) vs UDP(SOCK_DGRAM)
-	프로토콜 : 0(알아서 지정해달라는 의미) 
-	참고로 프로토콜은 컴퓨터 내부에서, 또는 컴퓨터 사이에서 
-	데이터의 교환 방식을 정의하는 규칙 체계를 말한다
-
-	socket함수의 반환값은 SOCKET이라는 타입의 값을 반환하는데
-	내부적으로 단순 uint에 불과하다. 그러나 해당 정수값을 
-	이용하여 나중에 운영체제한테 특정 소켓번호에게 데이터를
-	보내고 싶다고 요청하면 운영체제가 알아서 받은 번호에 
-	해당하는 소켓 리소스를 이용할 수 있도록 해주는 개념이다 
-	간략하게 SCOKET라는 정수가 사실상 포인터처럼 실제 
-	리소스를 가르키고 있는 상태라는 느낌으로 이해하면 된다 */
-	SOCKET ClientSocket = socket(AF_INET, SOCK_DGRAM, 0); 
-	// 실패했는지 확인
+	// 논블로킹(Non-Blocking)
+	SOCKET ClientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (ClientSocket == INVALID_SOCKET)
 	{
 		HandleError("Socket");
 		return 0;
 	}
 
+	u_long On = 1;
+	if (ioctlsocket(ClientSocket, FIONBIO, &On) == INVALID_SOCKET)
+	{
+		HandleError("Socket");
+		return 0;
+	}
 
-	// 소켓 또한 사용이 끝났다면 정리해주는 것이 좋다(소켓 리소스 반환)
-	// 참고로 closesocket함수를 호출하면 연결중이던 상대방은 해당 소켓에
-	// 더 이상 연결을 할 수 없다
+	SOCKADDR_IN ServerAddr;
+	memset(&ServerAddr, false, sizeof(ServerAddr));
+	ServerAddr.sin_family = AF_INET;
+	inet_pton(AF_INET, "192.168.0.5", &ServerAddr.sin_addr);
+	ServerAddr.sin_port = htons(7777);
+
+
+	while (true)
+	{
+		if (::connect(ClientSocket, (SOCKADDR*)&ServerAddr, sizeof(ServerAddr)) == SOCKET_ERROR)
+		{
+			if (WSAGetLastError() == WSAEWOULDBLOCK)
+			{
+				/* 해당 조건문에 들어왔다면 Connect의 경우에는 연결을 진행하고
+				있다는 의미가 된다(Server의 경우에는 연결 여부를 의미)
+				여기서 그냥 break을 해도 되기는 하다 */
+				continue;
+			}
+
+			// 따라서 위와 같은 이유로 인해서 Connect를 시도를 하였고,
+			// 연결을 진행중에 있기 때문에 계속해서 연결을 시도 하지 
+			// 않도록 한 번 더 조건처리를 해서 이미 연결되었다면 break
+			if (WSAGetLastError() == WSAEISCONN)
+				break;
+
+			break;
+		}
+	}
+
+	cout << "Connect To Server" << '\n';
+
+	// 데이터 전송
+	char SendBuffer[100] = "Hello World";
+	while (true)
+	{
+		if (send(ClientSocket, SendBuffer, sizeof(SendBuffer), 0) == SOCKET_ERROR)
+		{
+			if (WSAGetLastError() == WSAEWOULDBLOCK)
+				continue;
+
+			break;
+		}
+
+		cout << "Send Data Len = " << sizeof(SendBuffer) << '\n';
+		
+		// Recv
+		while (true)
+		{
+			char RecvBuffer[1000];
+			int32 iRecvLen = recv(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0);
+
+			if (iRecvLen == SOCKET_ERROR)
+			{
+				if (WSAGetLastError() == WSAEWOULDBLOCK)
+					continue;
+
+				break;
+			}
+			else if (iRecvLen == 0)
+			{
+				// 0인 경우 무조건 연결이 끊긴 상황이라서 break
+				break;
+			}
+			
+			cout << "Recv Data Len" << iRecvLen << '\n';
+
+			break;
+		}
+
+		this_thread::sleep_for(1s);
+	}
+
+
 	closesocket(ClientSocket);
 
 	// 윈속 종료(참고로 WSAStartup함수 호출 횟수 만큼 호출을 해줘야 한다)
