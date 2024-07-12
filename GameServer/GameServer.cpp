@@ -82,113 +82,66 @@ int main()
 
 	cout << "Accept" << '\n';
 
-#pragma region 블로킹 방식
-	{
-		/* 블로킹 소켓 방식에서의 Accept 방식의 경우에는 아래와 같이 클라이언트의
-		주소를 받아오고 있었고 받아온 ClientSocket이 INVAILD_SOCKET이 발생하면
-		무조건 문제가 발생했다고 판별하고 있었는데 논블로킹 방식에서는 이러한
-		상황에서 무조건 문제 상황이라고 확정지을 수가 없다.왜냐하면 애초에
-		논블로킹 방식은 대기 상황을 만들지 않기 때문에 성공적으로 완료되지는
-		않았지만 이게 꼭 문제가 있어서 발생한 상황이 아닐 수도 있다는 것이다.
-		따라서, 조건처리를 한 번 더 해줘야 한다.
+	/* Select 모델 = (Select 함수가 핵심이 되는 모델)
+	소켓 함수 호출이 성공할 시점을 미리 알 수 있다는 개념의 소켓 모델이다.
+	블로킹, 논블로킹 방식에 상관없이 둘 다 응용할 수 있으며, 예를 들어서
+	블로킹 소켓을 대상으로 Select 모델을 적용할 경우 조건이 만족되지 않아서
+	대기 상태가 되는 상황을 방지할 수 있을 것이고 논블로킹 소켓을 대상으로는
+	조건이 만족되지 않아서 불필요하게 반복해서 조건이 성립하는지 확인하는 
+	상황을 방지할 수 있을 것이다. 즉 송수신을 하기 전에 송수신이 가능한 
+	상태인지를 우선 확인한다는 것이라고 생각하면 된다.
+	
+	위에서 설명했듯 지금까지 데이터를 송수신 하는 과정에서 발생했던 가장 
+	대표적인 문제점이 RecvBuffer에 데이터가 없는데, 데이터를 읽어들이거나
+	SendBuffer가 가득 차있는데 데이터를 쓰거나 하는 상황에서 블록킹 방식이라면
+	대기를 하게 될 것이고 논블로킹 방식이라면 통과는 되지만 이후에 추가적으로 
+	데이터가 제대로 송수신 되었는지 반복해서 확인하는 과정에서 또 다시 대기를
+	해야 하는 문제점이 있었으며 이를 방지할 수 있는 방법이라고 생각하면 된다
 
-		SOCKADDR_IN ClientAddr;
-		int32 iAddrLen = sizeof(ClientAddr);
+	Select 모델을 사용하기 위해서는 Socket Set을 만들어줘야 한다.
 
-		SOCKET ClientSocket = accept(ListenSocket, (SOCKADDR*)&ClientAddr, &iAddrLen);
-		if (ClientSocket != INVAILD_SOCKET)
-		{
-			문제상황 발생(블로킹 방식)
-		} */
-	}
+	Socket Set(사용 방법)
+	1) 읽기[ ], 쓰기[ ], 예외(OOB)[ ] 이러한 목록에 관찰 대상을 등록해서 
+	확인하는 느낌으로 작동하는데, 예를 들어서 특정 소켓의 읽기, 쓰기, 예외 
+	각 시점의성공 시점을 확인하고 싶은 경우 병렬형태로 원하는 관찰 대상에
+	등록해서 사용한다. 또한, 예의는 무엇을 의미하냐면 OOB(OutOfBound)는
+	send()함수를 사용할 때 마지막 인자값을 따로 설정해준 경우가 없었는데
+	상황에 따라서 해당 인자값을 MSG_OOB로 설정할 수 있다. MSG_OOB로 
+	설정할 경우 특별한 데이터로 취급되며 데이터를 받는 곳에서도 똑같이
+	Recv(수신)을 해야지만 해당 데이터를 받을 수 있게 된다. 간략하게 
+	말하자면 긴급 상황을 알리는 특정 상황에서 사용되는데 사용 빈도는 적기
+	때문에 읽기, 쓰기 두 가지 정보를 채서 관찰 대상을 등록한다고 생각하자.
+	
+	2) select(readSet, writeSet, exceptSet) 함수를 사용해서 관찰을 시작한다.
+	select 함수의 각 인자값을 모두 넘겨줄 필요는 없고, 사용할 관찰 대상에
+	대해서만 인자값을 넘겨주고 나머지는 nullptr을 넘겨주면 된다.
+
+	3) 해당 select 함수를 호출하면 관찰을 시작하며 관찰 대상으로 등록한 
+	소켓 중 최소 하나라도 준비가 되었다고 한다면 준비된 소켓의 개수를 반환하고,
+	준비가 되지 않은 나머지 소켓은 관찰 대상에서 제거해주게 된다. 왜 이렇게
+	동작하냐면 예를 들어서,	A, B, C 라는 세 가지의 소켓을 대상으로 Read를 하고 
+	싶다고 가정했을때 읽기[A, B, C] 이 중 B소켓에 데이터가 송신되어서 B소켓만이
+	준비가 되었다면 select함수가 반환을 하면서 준비된 소켓의 개수(1)을 반환하고
+	나머지 A, B를 제거하는 방식으로 동작하게 된다.
+	
+	4) 결과적으로 읽기[B]가 남아서 실제로 Read를 진행할 수 있는 소켓만이 남고
+	해당 소켓들을 읽어주는 동작을 진행하게 된다 */
+
+#pragma region Select 모델
+	/* Socket Set을 다룰 때는 fd_set 데이터 타입을 사용해야 한다
+	또한 읽기[ ], 쓰기[ ], 예외[ ]와 같은 관찰 대상 항목에 소켓을
+	등록하기 위한 Socket Set을 만들어줘야 하는데, 이때 사용할 수
+	있는 4가지의 Flag 타입들이 존재한다.
+
+	fd_set set;
+	FD_ZERO  : 비운다		  ex) FD_ZERO(&set);
+	FD_SET   : 소켓(s) 추가	  ex) FD_SET(s, &set);
+	FD_CLR	 : 소켓(s) 제거	  ex) FD_CLR(s, &set);
+	FD_ISSET : 소켓(s)가 set에 들어있다면 0이 아닌 값을 반환한다. */
+
 #pragma endregion
 
-#pragma region 논블로킹 방식
-
-	SOCKADDR_IN ClientAddr;
-	int32 iAddrLen = sizeof(ClientAddr);
-
-	while (true)
-	{
-
-		SOCKET ClientSocket = accept(ListenSocket, (SOCKADDR*)&ClientAddr, &iAddrLen);
-		if (ClientSocket == INVALID_SOCKET)
-		{
-			// 또한 WSAGetLastError()함수로 받아온 에러 코드의 타입을 확인해서
-			// 어떠한 에러가 발생했는지 확인하는 것도 유용하다(문서 참고)
-			if (WSAGetLastError() == WSAEWOULDBLOCK)
-			{
-				/* 해당 조건문에 들어왔다는 연결 요청한 클라이언트의 데이터가 아직
-				연결이 되지 않은 상황이지만, 이게 문제 상황은 아니고 대기 상황을
-				방지하고자 강제로 빠져나오게 했는데 빠져나올 때까지 연결이 완료
-				되지는 않았다는 의미이다.따라서, 이러한 경우에는 무한 루프를 통해
-				계속해서 연결을 시도할 것이라서 continue를 통해서 계속 반복한다 */
-				continue;
-			}
-
-			// Error발생
-			break;
-		}
-
-		// 클라이언트 연결 완료
-		cout << "Client Connected" << '\n';
-
-		// Recv의 경우에도 Accept와 동일한 문제가 발생한다
-		while (true)
-		{
-			char RecvBuffer[1000];
-			int32 iRecvLen = recv(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0);
-			/* 블로킹 방식에서는 iRecvLen의 값이 SCOKET_ERROR과 같다면 문제가
-			발생했다고 판단을 했었는데, 이 또한 마찬가지로 Accept와 동일한
-			이유로 무조건 문제 상황은 아니고 무한 반복하면서 계속 Recv(수신)
-			시도하면서 정말 문제가 발생한건지 추가로 조건 처리를 해줘야한다 */
-
-			if (iRecvLen == SOCKET_ERROR)
-			{
-				if (WSAGetLastError() == WSAEWOULDBLOCK)
-					continue;
-
-				break;
-			}
-			else if (iRecvLen == 0)
-			{
-				// 0인 경우 무조건 연결이 끊긴 상황이라서 break
-				break;
-			}
-
-			cout << "Recv Data Len" << iRecvLen << '\n';
-
-			// Send 또한 동일한 문제가 있다
-			while (true)
-			{
-				if (send(ClientSocket, RecvBuffer, iRecvLen, 0) == SOCKET_ERROR)
-				{
-					if (WSAGetLastError() == WSAEWOULDBLOCK)
-						continue;
-
-					break;
-				}
-
-				cout << "Send Data Len = " << iRecvLen << '\n';
-
-				break;
-			}
-		}
-	}
 	
-#pragma endregion 
-
-	/* 블로킹 방식에서 논블로킹 방식으로 전환할 경우 오히려 성능이 더욱 저하가 될 것인데
-	왜냐하면 현재 테스트하는 환경은 1:1로 데이터를 주고 받는 상황이고, 데이터를 송수신
-	하는 경우가 별로 없고 명확한 데이터 송수신 순서가 있디 때문에 계속해서 반복해서 
-	검사를 하는 부분에서 CPU사이클을 많이 소요하기 때문에 성능저하가 발생하는 것이다.
-	따라서 이러한 상황에서는 대기를 하는 것이 더욱 효울적일수 있으며 상황에 맞게
-	적절하게 사용해야 한다는 것이 결론이다.
-
-	블로킹   -> 데이터 송수신 요청이 발생할 때까지 대기
-	논블로킹 -> 데이터 송수신이 발생했는지 계속해서 검사 
-	
-	위와 같은 단점들을 보완하기 위해 사용하는 방식을 소켓 모델이라고 부른다. */
 	WSACleanup();
 
 	return 0;
