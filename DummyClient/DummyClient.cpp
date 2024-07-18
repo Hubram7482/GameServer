@@ -24,7 +24,7 @@ int main()
 	{
 		return 0;
 	}
-
+	
 	// 논블로킹(Non-Blocking)
 	SOCKET ClientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (ClientSocket == INVALID_SOCKET)
@@ -104,7 +104,7 @@ int main()
 				break;
 			}
 			
-			cout << "Recv Data Len" << iRecvLen << '\n';
+			cout << "Recv Data Len = " << iRecvLen << '\n';
 
 			break;
 		}
