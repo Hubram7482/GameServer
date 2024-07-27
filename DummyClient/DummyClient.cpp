@@ -75,47 +75,49 @@ int main()
 
 	// 데이터 전송
 	char SendBuffer[100] = "Hello World";
+	WSAEVENT wsaEvent = WSACreateEvent();
+	WSAOVERLAPPED overlapped = {};
+	overlapped.hEvent = wsaEvent;
+
 	while (true)
 	{
-		if (send(ClientSocket, SendBuffer, sizeof(SendBuffer), 0) == SOCKET_ERROR)
-		{
-			if (WSAGetLastError() == WSAEWOULDBLOCK)
-				continue;
+		WSABUF wsaBuf;
+		wsaBuf.buf = SendBuffer;
+		wsaBuf.len = sizeof(SendBuffer);
 
-			break;
+		DWORD sendLen = 0;
+		DWORD flags = 0;
+
+		if (WSASend(ClientSocket, &wsaBuf, 1, &sendLen, flags, 
+			&overlapped, nullptr) == SOCKET_ERROR)
+		{
+			if (WSAGetLastError() == WSA_IO_PENDING)
+			{
+				/* 마찬가지로 상대방이 데이터를 받지 않아서 커널 버퍼의 
+				SendBuffer가 가득 차 있는 상태이고, 때문에 SendBuffer에
+				전송할 데이터를 복사할 수 없기 때문에 PENDING 상태가
+				되었다는 것을 의미한다 */
+				
+				
+				WSAWaitForMultipleEvents(1, &wsaEvent, TRUE, WSA_INFINITE, false);
+				WSAGetOverlappedResult(ClientSocket, &overlapped, &sendLen,
+					FALSE, &flags);
+
+			}
+			else
+			{
+				// TODO : 문제 상황
+				break;
+			}
 		}
 
 		cout << "Send Data Len = " << sizeof(SendBuffer) << '\n';
 		
-		// Recv
-		while (true)
-		{
-			char RecvBuffer[1000];
-			int32 iRecvLen = recv(ClientSocket, RecvBuffer, sizeof(RecvBuffer), 0);
-
-			if (iRecvLen == SOCKET_ERROR)
-			{
-				if (WSAGetLastError() == WSAEWOULDBLOCK)
-					continue;
-
-				break;
-			}
-			else if (iRecvLen == 0)
-			{
-				// 0인 경우 무조건 연결이 끊긴 상황이라서 break
-				break;
-			}
-			
-			cout << "Recv Data Len = " << iRecvLen << '\n';
-
-			break;
-		}
-
 		this_thread::sleep_for(1s);
 	}
 
-
 	closesocket(ClientSocket);
+	WSACloseEvent(wsaEvent);
 
 	// 윈속 종료(참고로 WSAStartup함수 호출 횟수 만큼 호출을 해줘야 한다)
 	// 호출을 하지 않더라도 문제가 발생하지 않는다(필수사항은 아니고 권장사항이다)
