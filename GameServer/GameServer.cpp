@@ -35,6 +35,47 @@ struct Session
 	WSAOVERLAPPED overlapped = {};
 };
 
+void CALLBACK RecvCallback(DWORD error, DWORD recvLen, LPWSAOVERLAPPED overlapped, DWORD flags)
+{
+	cout << "Data Recv CallBack = " << recvLen << '\n';
+	// TODO : 에코 서버를 만든다면 WSASend()
+	// 참고로 에코 서버란 클라이언트의 데이터를 그대로 되돌려주는 것을 뜻한다
+
+	/* 비동기 함수의 인자값으로 넣어준 콜백 함수이며, 인자값을 통해서 여러 
+	정보를 받아오지만 이 중 실질적으로 유용한 정보는 없다. 왜냐하면 첫 번째
+	인자는 단순 Error여부이고 두 번째 인자는 받아온	Byte 개수이고 마지막 
+	인자값은 단순 0을 의미하기 때문에 결국 운영체제가 알려줄 수 있는 정보는 
+	overlapped 뿐인데 해당 overlapped 구조체도 유용한 정보는 이벤트 핸들
+	밖에 없으며 이벤트 방식을 사용하지 않을 경우 쓸모가 없어진다.
+
+	이러한 이유들로 인해서 여러 클라이언트 소켓이 존재하고 해당 RecvCallback
+	함수가 호출됐을때, 함수를 호출한 클라이언트가 어떤 클라인지를 구별할 수
+	없는 문제가 있다. 
+
+	하지만 세 번째 인자값인 WSAOVERLAPPED 포인터를 넘겨줄 때 WSAOVERLAPPED
+	포인터만을 넘겨줘야할 필요가 없다는 특징이 있는데, 이게 무슨 말이냐면
+	예를 들어서 WSAOVERLAPPED를 포함하고 있는 구조체가 있고 WSAOVERLAPPED
+	변수가 가장 먼저 선언되어 있으면 사실상 해당 구조체의 시작 주소가
+	WSAOVERLAPPED를 나타내게 될 것이며 이를 통해서 다른 정보들을 담아서
+	가지고 올 수 있다. 예시는 아래와 같다.
+
+	struct Test
+	{
+		WSAOVERLAPPED overlapped;
+		int iAtt;
+	}
+	
+	Test test;
+
+	RecvCallback 함수 호출 시 세번째 인자값으로 &test.overlapped를 넘겨줄
+	수 있으며, RecvCallback 함수의 인자값으로 받아온 overlapped는 구조체의
+	시작 주소를 의미하기 때문에 캐스팅을 통해서 구조체에 담긴 다른 정보를
+	사용할 수 있다.
+
+	Test* pTest = (Test*)overlapped;
+	pTest->iAtt = 5; */
+}
+
 int main()
 {
 	// 윈속 라이브러리 초기화(ws2_32 라이브러리 초기화)
@@ -94,21 +135,8 @@ int main()
 
 	cout << "Accept" << '\n';
 
-	// Overlapped IO (비동기 + 논블로킹)
 	
-	
-	// 1. Overlapped 함수를 호출한다(WSARecv, WSASend)
-	// 2. Overlapped 함수가 성공했는지 확인 후	성공했다면 
-	// 결과를 얻어서 처리 하고 실패했다면 사유를 확인한다.
-	// 3. 실패 사유가 Pending(보류 중)일 경우 추후 완료가
-	// 되었을때 이벤트 방식과 콜백 방식 두 가지 방법 중 
-	// 하나로 통지해달라는 요청을 한다 
-
-	/* 우선 이벤트 방식을 사용할 것이며 Overlapped 계열 함수는 아래와같다.
-	WSASend, WSARecv, AcceptEx, ConnectEx 참고로 여기서 Ex가 붙은 두 함수는
-	나중에 알아볼 것이다.
-
-	WSASend, WSARecv는 함수 인자값이 비슷하며 세부사항은 아래와 같다
+	/* WSASend, WSARecv는 함수 인자값이 비슷하며 세부사항은 아래와 같다
 
 	1) 비동기 입출력 소켓
 	2) WSABUF 구조체 배열의 시작 주소 + 개수
@@ -124,41 +152,54 @@ int main()
 	탐지해서 완료되었는지 판별하는 것이 있다)
 	6) 입출력이 완료되면 OS(운영체제)가 호출할 콜백 함수
 	
+	6번째 인자값으로 넘겨주는 콜백 함수(함수 포인터)를 통해서 받아 올 
+	데이터들의 정보는 아래와 같다.
 
-	Overlapped 모델(이벤트 기반) 사용 방법
+	6-1) 오류 발생시 0이 아닌 값
+	6-2) 전송 바이트 수
+	6-3) 비동기 입출력 함수 호출 시 넘겨준 WSAOVERLAPPED 구조체의 주소값
+	6-4) 사용하지 않을 것이기 때문에 0을 넘겨준다.
 
-	1. 비동기 입출력을 지원하는 소켓과, 통지 받기 위한 이벤트 객체 생성한다
-	2. 비동기 입출력 함수(WSASend, WSARecv)을 호출하고 통지 받기 위해 생성한
-	이벤트 객체를 같이 넘겨준다(WSAOVERLAPPED 구조체에 담아서 인자값으로 전달)
-	3. 비동기 작업이 바로 완료되지 않는다면 WSA_IO_PENDING 오류 코드가 발생하는데
-	이러한 경우 요청한 작업이 당장 실행되지 않았고 이후에 완료가 되면 통지가 
-	오겠다고 예상할 수 있으며 오류가 발생하지 않았다면 성공적으로 완료가 된 것이다.
-	4. WSA_IO_PENDING 오류가 발생해서 나중에 완료가 된다고 했을 경우 나중에 
-	운영체제가 백그라운드에서 요청받은 Send, Recv를 처리하다가 완료가 되면
-	이벤트 객체를 통해서 Signaled 상태로 전환해서 요청한 대상에게 통지를 하고
-	요청을 대상은 이벤트 객체가 Signaled 상태로 되어 있는지를 탐지해서 만약
-	Signaled 상태로 되어 있다면 요청한 작업이 완료되었다고 인지를 하고 그 다음
-	작업을 진행하는 방식으로 작동한다.
-	이전에 사용해봤던 WSAWaitForMultipleEvents 함수를 호출해서 이벤트 객체의
-	Signaled 상태를 판별하고, 이후 WSAGetOverlappedResult 함수를 호출해서 
-	비동기 입출력 결과 및 데이터를 처리하면 된다
 
-	WSAGetOverlappedResult 함수의 인자값 정보는 아래와같다
-	1) 비동기 소켓
-	2) 넘겨준 Overlapped 구조체
-	3) 전송된 바이트 수 
-	4) 비동기 입출력 작업이 끝날때까지 대기할지에 대한 여부 설정(참고로 
-	WSAWaitForMultipleEvents 함수를 사용해서 이벤트 객체의 Signaled 상태를
-	판별 후 WSAGetOverLappedResult 함수를 호출하는 상황이라면 이미 비동기
-	작업이 끝났다는 의미이기 때문에 false로 설정하면 된다)
-	5) 비동기 입출력 작업 관련 부가 정보(기본적으로 NULL 사용 빈도 매우 낮음) */
+	Overlapped 모델(콜백(Completion Routine) 기반) 사용 방법
 
-	/* 이번에는 Send, Recv의 경우에만 비동기 방식을 활용할 것이고 
-	Accept의 경우에는 사전 작업이 필요하기 때문에 나중에 사용해볼 
-	것이며 또한, 기존과는 다르게 에코서버 형태로 사용하지 않고 
-	클라에서는 Send만 하고 서버에서는 Recv만 처리하는 형태로 
-	작업할 것이다. 
-	구조 관련해서는 IOCP에 관한 내용을 다룰때부터 작업할 것이다 */
+	1. 비동기 입출력을 지원하는 소켓 생성
+	2. 비동기 입출력 함수 호출(비동기 작업 완료 시점에 호출할 콜백 함수의 
+	시작 주소를 넘겨준다(함수 포인터))
+
+	3. 비동기 작업이 바로 완료되지 않는다면 WSA_IO_PENDING 오류 코드가 발생하며
+	해당 오류 코드가 의미하는 것은 비동기 작업이 진행중이라는 뜻이다. 따라서, 
+	해당 오류는 문제상황이 아니다.
+	
+	4. 비동기 입출력 함수를 호출한 쓰레드를 Alertable Wait 상태로 만든다.
+	Alertable Wait 상태가 의미하는 것은 비동기 작업이 완료되었고, 콜백 
+	함수를 호출할 수 있도록 대기하고 있다는 것을 의미한다.
+	왜 이런 식으로 Alertable Wait 상태를 확인해서 콜백 함수를 호출하는
+	것이냐면, 예를 들어서 락을 잡아서 빠르게 처리해야 하는 작업을 
+	처리 중인 상황에서 중간에 콜백 함수가 호출이 되면 의도한대로 빠르게
+	처리하기 어려울 것이기 때문에 이를 방지하기 위해서 상태를 확인한다.
+
+	Alertable Wait 상태로 만들기 위해 사용되는 함수는 아래와 같다.
+	WaitForSingleObjectEx, WaitForMultipleObjectsEx, SleepEx,
+	WSAWaitForMultipleEvents 등이 있다.
+
+	5. 콜백 함수(완료 루틴)의 호출이 모두 끝나면 쓰레드는 Alertable Wait
+	상태에서 빠져나온다 
+	
+	APC(Asynchronous Procedure Call) : 비동기적으로 실행되는 함수호출을 의미한다
+
+	APC Queue는 비동기 입출력 결과 저장을 위해 운영체제가 각 쓰레드마다 할당하는 
+	메모리 영역이다. 해당 영역은 각 쓰레드마다 독립적이며 비동기적으로 호출해야 
+	하는 함수들과 매개변수 정보가 저장된다.
+	
+	APC Queue에 저장된 콜백 함수들은 쓰레드가 Alertable Wait 상태일때 호출된다.
+
+	쓰레드는 자신의 APC Queue 에 있는 모든 콜백 함수를 하나씩 함수를 호출한다.
+	즉 Alertable Wait 상태에 한 번 진입하면 현재 APC Queue에 저장되어 있는
+	콜백 함수들을 처리한다. 콜백 함수가 호출이 끝났다면 Alertable Wait 상태에서 
+	빠져나와서 이어서 다음 줄부터 실행하는 흐름이다.
+
+	*/
 
 	while (true)
 	{
@@ -189,13 +230,7 @@ int main()
 		}
 
 		Session  session = Session{ ClientSocket };
-		/* 당연한 얘기지만 위 session에 대한 입출력 통지를
-		해당 이벤트 객체를 통해서 받을 것이다 */
-		WSAEVENT wsaEvent = WSACreateEvent();
 		
-		// WSAOVERLAPPED에게 이벤트 핸들을 넘겨준다
-		session.overlapped.hEvent = wsaEvent;
-
 		cout << "Client Connected !" << '\n';
 
 		while (true)
@@ -209,48 +244,22 @@ int main()
 			DWORD recvLen = 0;
 			DWORD flags = 0;
 
-			/* 동작 방식을 대략적으로 요약하자면 클라와 Accept(연결)을
-			한 다음 클라에서 데이터를 전송하여 해당 데이터를 서버에서
-			Recv 함수를 통해서 데이터를 받아줄 때 해당 Recv 함수가 
-			당장 완료가 될 수도 있지만, 데이터가 모두 전달이 되지 
-			않아서 나중에 데이터가 모두 전송이 끝났을때 데이터를 모두
-			받아왔다는 통지를 받을 수 있도록 WSARecv 함수를 걸어놓는
-			개념이다. 따라서 무한 루프를 돌면서 계속해서 Recv를 
-			해주는 형태로 동작하게 될 것이다 */
 			if (WSARecv(ClientSocket, &wasBuf, 1, &recvLen, &flags,
-				&session.overlapped, nullptr) == SOCKET_ERROR)
+				&session.overlapped, RecvCallback) == SOCKET_ERROR)
 			{
-				/* SOCKET_ERROR가 발생했다면 여러가지 상황이 있을 수 
-				있는데 클라에서 서버에 Send를 해서 현재 Recv버퍼에
-				데이터가 모두 전달된 경우라면 바로 성공을 하겠지만, 
-				데이터가 전송되고 있는 중이라면 Pending(보류)상태가
-				될 것이며 데이터가 모두 전송이 되지 않았으니 모두
-				전송이 되어서 완료가 되는 시점에 통지를 해달라는
-				요청을 해놓으면 된다 */
-
 				if (WSAGetLastError() == WSA_IO_PENDING)
 				{
-					/* 발생한 오류가 WSA_IO_PENDING 이라면 실제로
-					문제가 발생한것은 아니고 당장 받을 데이터가 
-					없어서 PENDING 상태가 된 것이다 */
+					// 콜백 방식이기 때문에 Alertable Wait 상태로 바꿔야한다.
 
-					/* WSAWaitForMultipleEvents 함수를 사용해서 완료가
-					되었을때 통지를 받을 수 있도록 한다 
-					함수 인자값을 보면 알겠지만 모든 이벤트가 완료가
-					될 때까지 대기하며 대기 시간은 무한으로 설정했다 */
-					WSAWaitForMultipleEvents(1, &wsaEvent, TRUE, WSA_INFINITE, false);
-					
-					/* WSAWaitForMultipleEvents 함수에서 빠져나와서 이벤트객체가
-					Signaled 상태로 전환되었다면 WSAGetOverlappedResult 함수를
-					사용해서 결과값을 확인할 수 있다 */
-					WSAGetOverlappedResult(session.socket, &session.overlapped,
-						&recvLen, FALSE, &flags);
-					
-					/* 결론적으로 WSARecv 함수가 바로 성공했다면 recvLen에 데이터가 
-					바로 채워지게 될 것이고, 만약 실패했다면 WSAWaitForMultipleEvents 
-					함수를 통해서 데이터를 받을 때까지 대기를 해서 데이터를 받아온 후  
-					WSAGetOverlappedResult 함수를 통해서 recvLen, overlapped 구조체에
-					값을 채워주는 것이다 */
+					/* WSAWaitForMultipleEvents는 다수의 이벤트를 확인하는 
+					방식으로 만들 수 있었는데 해당 함수는 64개의 이벤트만을
+					처리할 수 있다는 단점이 있다. 
+
+					반면, CallBack 방식의 경우 SleepEx 함수를 호출하는 순간
+					APC Queue에 저장되어 있는 콜백 함수들을 모두 호출하는
+					식으로 동작하기 때문에 클라이언트 개수만큼 이벤트를
+					할당할 필요가 없다는 장점이 있다 */
+					SleepEx(INFINITE, TRUE);
 				}
 				else
 				{
@@ -258,12 +267,13 @@ int main()
 					break;
 				}
 			}
-			
-			cout << "Data Recv Len = " << recvLen <<'\n';
+			else
+			{
+				cout << "Data Recv Len = " << recvLen << '\n';
+			}
 		}
 		
 		closesocket(session.socket);
-		WSACloseEvent(wsaEvent);
 	}
 
 	WSACleanup();
