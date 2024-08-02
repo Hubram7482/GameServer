@@ -17,6 +17,8 @@
 #pragma comment(lib, "ws2_32.lib")
 
 
+/* TODO 현재 테스트 코드는 문제점이 하나 있는데, 뭔지 
+기억이 안나면 Completion Port 강의 30:50 부터 보셈 */
 void HandleError(const char* _Cause)
 {
 	int32 iErrCode = WSAGetLastError();
@@ -32,7 +34,20 @@ struct Session
 	SOCKET socket = INVALID_SOCKET;
 	char  recvBuffer[BUFSIZE] = {};
 	int32 iRecvBytes = 0;
+};
+
+struct OverlappedEx
+{
 	WSAOVERLAPPED overlapped = {};
+	int32 iType = 0; // read, write, accept, connect... IO_TYPE을 의미
+};
+
+enum IO_TYPE
+{
+	READ,
+	WRITE,
+	ACCEPT,
+	CONNECT,
 };
 
 void CALLBACK RecvCallback(DWORD error, DWORD recvLen, LPWSAOVERLAPPED overlapped, DWORD flags)
@@ -76,6 +91,83 @@ void CALLBACK RecvCallback(DWORD error, DWORD recvLen, LPWSAOVERLAPPED overlappe
 	pTest->iAtt = 5; */
 }
 
+void WorkerThreadMain(HANDLE iocpHandle)
+{
+	/* CP(Completion Port)핸들을 받아와서 GetQueuedCompletionStatus 함수를
+	호출하여 완료된 입출력 작업이 있는지를 확인할 것이다 */
+
+	while (true)
+	{
+		/* 완료된 작업이 있는지 계속해서 확인하는 동작이 성능에 영향을 주지는 않으며
+		함수 인자값으로 대기 시간을 넘겨줄 수 있는데 대기 시간을 무한으로 넘겨주면
+		이전에 사용했던 이벤트 방식처럼 일감이 발생하기 전 까지 대기 상태가 되어서
+		동작하지 않고 있다가 실제로 일감이 발생할 경우 운영체제가 쓰레드 하나를 
+		활성화하여 일처리를 명령하게 될 것이다(설명이 모호함) */
+		
+		/* GetQueuedCompletionStatus 함수의 인자값 정보는 아래와 같다
+		1. IOCP 핸들 
+		2. 완료된 I/O 작업의 바이트 수를 저장할 변수
+		3. Completion Key(완료된 입출력 작업을 구분하기 위한 키값)
+		4. 완료된 I/O 작업의 대한 OVERLAPPED 구조체 포인터 변수
+		5. 대기 시간 
+		
+		간략하게 정리하자면 해당 인자값들을 통해서 세팅된 Session, 
+		Overlapped 정보를 복원할 수 있다는 것이다 */
+
+		DWORD bytesTransferred = { 0 };
+		Session* session = { nullptr };
+		OverlappedEx* overlappedEx = { nullptr };
+
+		BOOL bRet = GetQueuedCompletionStatus(iocpHandle, &bytesTransferred, (ULONG_PTR*)&session, 
+											 (LPOVERLAPPED*)&overlappedEx, INFINITE);
+
+		/* GetQueuedCompletionStatus 함수에 대기 시간을 INFINITE(무한)을 넘겨서
+		실제로 일감(입출력 작업)이 완료가 될 때까지 쓰레드가 대기를 할 것인데
+		이후 실질적으로 완료된 일감(Recv, Send 등)이 발생할 경우 커널 모드에서 
+		해당 완료 패킷을 IOCP(Completion Port)에 추가할 것이고, IOCP에 완료
+		패킷이 추가되면 GetQueuedCompletionStatus 함수는 대기 상태에서 빠져나와
+		완료된 입출력 작업에 대한 정보를 반환하게 될 것이다. 이 과정에서 IOCP는
+		대기 중인 쓰레드 중 하나를 활성화하여 완료된 작업을 처리하게 될 것이다 
+		GetQueuedCompletionStatus 함수의 반환 타입 자체는 BOOL 타입으로 연결이
+		끊겼다거나 하는 문제 상황에 대한 여부를 나타낸다 */
+		
+		if (bRet == FALSE || bytesTransferred == 0)
+		{
+			// TODO : 연결 끊김 
+			// 우선 간략하게 처리
+			continue;
+		}
+
+		// 테스트 용도로 READ 작업만을 적용하고 있기 때문에 READ 에러를 체크
+		ASSERT_CRASH(overlappedEx->iType == IO_TYPE::READ);
+
+		cout << "Recv Data IOCP = " << bytesTransferred << '\n';
+
+		/* 또한, 이런 식으로 쓰레드를 활성화해서 일을 처리한 다음 이어서 데이터를
+		또 받아주고 싶은 경우 이전에 했던 것과 마찬가지로 콜백 함수에서도 Recv를
+		해줘야 한다. 왜냐하면 단순하게 낚시로 비유를 하자면 낚싯대를 물에 던져놓고
+		물고기를 낚은 상황에서 또다시 물고기를 낚고 싶다면 낚싯대를 다시 물에 
+		던져놓아야 하는 상황과 유사하다고 생각하면 된다.
+		아래 코드에서는 받아온 데이터를 기반으로 Recv를 해주고 있는데 Recv가 아닌
+		Send와 같은 다른 작업을 하고 싶다고 한다면 OVERLAPPED 구조체를 동적할당해서
+		타입을 변경해서 함수를 호출하면 될 것이다 */
+
+		WSABUF wasBuf;
+		wasBuf.buf = session->recvBuffer;
+		wasBuf.len = BUFSIZE;
+
+		DWORD recvLen = 0;
+		DWORD flag = 0;
+
+		WSARecv(session->socket, &wasBuf, 1, &recvLen, &flag, &overlappedEx->overlapped,
+			NULL);
+
+		/* 그래서 결국 Session, OverlappedEx를 분리해서 관리한 이유는 나중에 가면 네트워크
+		입출력 함수를 사용할 때 어떤 사유(Read, Writre, 기타 등등)로 사용했는지를 구분하기
+		위해서 분리를 해 준 것이다 */
+	}
+}
+
 int main()
 {
 	// 윈속 라이브러리 초기화(ws2_32 라이브러리 초기화)
@@ -97,15 +189,6 @@ int main()
 	// 논블로킹(Non-Blocking)
 	SOCKET ListenSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (ListenSocket == INVALID_SOCKET)
-	{
-		HandleError("Socket");
-		return 0;
-	}
-
-	// 논블로킹 방식을 사용하려면 아래와 같이 사용하면 된다는데, 자세한
-	// 설명은 따로 없고 그냥 이렇게 사용하면 된다고한다(궁금하면 문서)
-	u_long On = 1;
-	if (ioctlsocket(ListenSocket, FIONBIO, &On) == INVALID_SOCKET)
 	{
 		HandleError("Socket");
 		return 0;
@@ -136,146 +219,112 @@ int main()
 	cout << "Accept" << '\n';
 
 	
-	/* WSASend, WSARecv는 함수 인자값이 비슷하며 세부사항은 아래와 같다
-
-	1) 비동기 입출력 소켓
-	2) WSABUF 구조체 배열의 시작 주소 + 개수
-	WSABUF 배열의 시작 주소를 받는 이유는 WSABUF 구조체를 배열 형태로 
-	여러개 만들어서 사용할 경우 한 번에 인자로 넘겨줄 수 있기 때문이다
-	이렇게 여러개의 버퍼를 한 번에 넘겨주는 상황으로 Scatter-Gather라는
-	쪼개져 있는 버퍼들을 한 번에 보내준다는 개념의 기법이 있다(나중에
-	패킷을 만들어서 전달할 때 유용하게 사용할 예정)
-	3) 보내고/받은 바이트 수
-	4) 상세 옵션(기본 0)
-	5) WSAOVERLAPPED 구조체 주소값(사용 예시 중 하나로 해당 구조체에게 
-	이벤트 핸들을 넘겨줘서 해당 핸들값을 통해서 이벤트 시그널 상태를 
-	탐지해서 완료되었는지 판별하는 것이 있다)
-	6) 입출력이 완료되면 OS(운영체제)가 호출할 콜백 함수
+	/* IOCP (Completion Routine)모델
+	Overlapped 모델과는 다르게 APC Queue를 통해서 일감을 처리하는 것이 아니라 
+	Completion Port를 통해서 처리하게 된다.
+	Completion Port는 쓰레드마다 존재하는 것은 아니고 만들어서 사용하면 되는데
+	다수의 Completion Port를 만들 수도 있지만 기본적으로는 1개를 만들어서 사용한다.
 	
-	6번째 인자값으로 넘겨주는 콜백 함수(함수 포인터)를 통해서 받아 올 
-	데이터들의 정보는 아래와 같다.
+	Completion Port의 개념을 대략적으로 작성해보자면 중앙에서 관리하는 APC Queue같은 
+	느낌인데, 다수의 쓰레드가 하나의 Completion Port를 통해 일감(입출력 비동기 작업)을
+	받아서 실행하게 될 것이다. 즉, 일감 자체를 모아놓는 공용 Queue를 만든다는 개념이다.
 
-	6-1) 오류 발생시 0이 아닌 값
-	6-2) 전송 바이트 수
-	6-3) 비동기 입출력 함수 호출 시 넘겨준 WSAOVERLAPPED 구조체의 주소값
-	6-4) 사용하지 않을 것이기 때문에 0을 넘겨준다.
-
-
-	Overlapped 모델(콜백(Completion Routine) 기반) 사용 방법
-
-	1. 비동기 입출력을 지원하는 소켓 생성
-	2. 비동기 입출력 함수 호출(비동기 작업 완료 시점에 호출할 콜백 함수의 
-	시작 주소를 넘겨준다(함수 포인터))
-
-	3. 비동기 작업이 바로 완료되지 않는다면 WSA_IO_PENDING 오류 코드가 발생하며
-	해당 오류 코드가 의미하는 것은 비동기 작업이 진행중이라는 뜻이다. 따라서, 
-	해당 오류는 문제상황이 아니다.
+	Overlapped 모델을 사용해서 일감을 처리하는 방식은 작업이 완료가 되었다면 
+	Alertable Wait 상태로 전환 후에 APC Queue에 접근하여 저장되어 있는 모든
+	콜백 함수를 하나씩 호출하는 방식으로 처리했었다.
 	
-	4. 비동기 입출력 함수를 호출한 쓰레드를 Alertable Wait 상태로 만든다.
-	Alertable Wait 상태가 의미하는 것은 비동기 작업이 완료되었고, 콜백 
-	함수를 호출할 수 있도록 대기하고 있다는 것을 의미한다.
-	왜 이런 식으로 Alertable Wait 상태를 확인해서 콜백 함수를 호출하는
-	것이냐면, 예를 들어서 락을 잡아서 빠르게 처리해야 하는 작업을 
-	처리 중인 상황에서 중간에 콜백 함수가 호출이 되면 의도한대로 빠르게
-	처리하기 어려울 것이기 때문에 이를 방지하기 위해서 상태를 확인한다.
+	Completion Port의 경우에는 결과 처리를 하기 위해서 GetQueuedCompletionStatus라는
+	함수를 호출하게 된다.
 
-	Alertable Wait 상태로 만들기 위해 사용되는 함수는 아래와 같다.
-	WaitForSingleObjectEx, WaitForMultipleObjectsEx, SleepEx,
-	WSAWaitForMultipleEvents 등이 있다.
+	또한, IOCP 방식은 Completion Port 하나를 통해서 일감을 처리하기 때문에 
+	멀티쓰레드 환경과 친화적이라는 특징이 있다. 
 
-	5. 콜백 함수(완료 루틴)의 호출이 모두 끝나면 쓰레드는 Alertable Wait
-	상태에서 빠져나온다 
-	
-	APC(Asynchronous Procedure Call) : 비동기적으로 실행되는 함수호출을 의미한다
+	위와 같은 특징들을 제외하면 IOCP는 Overlapped 모델과 유사한 코드 흐름을 가진다.
 
-	APC Queue는 비동기 입출력 결과 저장을 위해 운영체제가 각 쓰레드마다 할당하는 
-	메모리 영역이다. 해당 영역은 각 쓰레드마다 독립적이며 비동기적으로 호출해야 
-	하는 함수들과 매개변수 정보가 저장된다.
-	
-	APC Queue에 저장된 콜백 함수들은 쓰레드가 Alertable Wait 상태일때 호출된다.
+	CreateIoCompletionPort 함수는 Completion Port 생성, 이후에 소켓을 생성해준 
+	Completion Port에 등록하는 두 가지 용도로 사용한다.
 
-	쓰레드는 자신의 APC Queue 에 있는 모든 콜백 함수를 하나씩 함수를 호출한다.
-	즉 Alertable Wait 상태에 한 번 진입하면 현재 APC Queue에 저장되어 있는
-	콜백 함수들을 처리한다. 콜백 함수가 호출이 끝났다면 Alertable Wait 상태에서 
-	빠져나와서 이어서 다음 줄부터 실행하는 흐름이다.
+	GetQueuedCompletionStatus(결과 처리를 감시하는 함수) */
 
-	*/
+	// 임시로 만들어준 Session을 보관하는 vector
+	vector<Session*> vecSessionManager;
 
+	// Completion Port 생성
+	/* CreateIoCompletionPort 함수를 Completion Port를 생성하는 용도로 사용할 경우
+	첫 번째 인자값으로 INVALID_HANDLE_VALUE를 넘겨주고 나머지 인자값은 모두 NULL
+	로 채워주면 되며, 함수 반환값으로 IOCP핸들을 뱉어준다 */
+	// 이렇게 생성한 IOCP 핸들을 이용해서 Completion Port에 접근할 수 있다(커널 객체?)
+	// 참고로, 해당 코드들은 테스트를 하기 위해서 대충 만든 것들이 있다는 점을 인지하자
+	HANDLE IocpHandle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, NULL, NULL);
+
+	/* Completion Port를 생성한 WorkerThreadMain 쓰레드를 생성해서 Completion Port를 
+	계속 관찰하면서 완료된 입출력 함수가 존재하는지 확인해서 완료된 입출력 함수가 있다면 
+	완료된 결과물을 받아와서 해당 결과값을 기반으로 어떤 비동기 입출력 작업이 완료가
+	되었는지 확인 후 해당 작업에 대한 추가 처리(일반적으로 콜백 함수)를 호출해줄 것이다.
+	여기서 말하는 입출력 함수는 WSARecv WSASend와 같은 비동기 함수를 말하는거임 */
+	for (int32 i = 0; i < 5; ++i)
+	{
+		// 람다를 이용해서 복사한 IocpHandle를 이용해서 WorkerThreadMain 함수 호출 유도
+		GThreadManager->Launch([=]() { WorkerThreadMain(IocpHandle); });
+	}
+
+	/* Main Thread = Accept 담당(참고로 나중에는 Accept 하는 것도 Completion Port를 통해서 
+	처리할 것인데 우선은 테스트를 위해서 임시로 Main Thread에서 처리하도록 만든거임
+
+	아래 Main Thread가 하는 역할을 간략하게 쓰자면 새로운 소켓을 받아 와서 한 번 Recv 함수를 
+	호출하고 작업 완료 여부는 확인하지 않고 다른 클라이언트을 받아주러 가는 식으로 동작한다.
+	Recv 작업 처리는 별도의 쓰레드가 처리해주게 될 것이다 */
 	while (true)
 	{
 		SOCKADDR_IN ClientAddr;
 		int32 iAddrLen = sizeof(ClientAddr);
-		SOCKET ClientSocket;
 
-		while (true)
-		{
-			/* 현재 소켓 자체가 논블로킹 소켓이기 때문에 accept 함수가 
-			완료되지 않더라도 대기하지 않고 빠져나올 것이기 때문에 
-			반복문을 통해서 받아온 소켓이 INVALID_SOCKET가 아닐 때까지
-			즉, 유효한 소켓을 받아올 때까지 계속해서 확인하는 것이다 */
-			ClientSocket = accept(ListenSocket, (SOCKADDR*)&ClientAddr, &iAddrLen);
-			if (ClientSocket != INVALID_SOCKET)
-				break;
-
-			if (WSAGetLastError() == WSAEWOULDBLOCK)
-			{
-				/* 에러가 발생하였으나, WSAEWOULDBLOCK 에러인 경우에는 
-				문제상황이 아니라, 아직 연결한 대상이 없다는 의미이기
-				때문에 continue 해준다 */
-				continue;
-			}
-
-			// 여기까지 도달하면 정말로 문제가 발생한 경우이다
+		SOCKET ClientSocket = accept(ListenSocket, (SOCKADDR*)&ClientAddr, &iAddrLen);
+		if (ClientSocket == INVALID_SOCKET)
 			return 0;
-		}
 
-		Session  session = Session{ ClientSocket };
-		
+		// 다수의 소켓과 연결하는 상황을 가정
+		Session* session = new Session();
+		session->socket = ClientSocket;
+		vecSessionManager.push_back(session);
+			
 		cout << "Client Connected !" << '\n';
 
-		while (true)
-		{
-			/* 참고로 아래 WSABUF 구조체 메모리는 Recv 호출 후 날려버려도 
-			상관없으나 session의 RecvBuffer자체는 건들이면 안된다 */
-			WSABUF wasBuf;
-			wasBuf.buf = session.recvBuffer;
-			wasBuf.len = BUFSIZE;
+		/* 소켓을 CP(Completion Port)에 등록
+		소켓을 CP에 등록하여 관찰을 하게 되면 해당 소켓이 Recv, Send 등의 작업이 완료가 되었을
+		경우 완료가 되었다는 통지가 IOCP를 통해서 오게 될 것이다. 물론 자동으로 오는 것은 아니고
+		직접 관찰을 해서 완료가 되었는지에 대한 여부를 체크해야 한다
+		CreateIoCompletionPort 함수는 위에서 설명했듯이 CP를 생성하는 용도와 소켓을 CP에 등록하는 
+		두 가지 용도로 사용할 수 있으며, 아래 로직은 소켓을 CP에 등록하는 용도로 사용하는 경우이다 */
 
-			DWORD recvLen = 0;
-			DWORD flags = 0;
+		/* 소켓을 CP에 등록하는 용도로 사용하는 경우 첫 번째 인자값으로 HANDLE을 받아주는데
+		소켓을 캐스팅해서 넘겨주면되고, 두 번째 인자는 위에서 만들어준 CP을 넘겨주면 된다.
+		세 번째 인자값은 나중에 GetQueuedCompletionStatus 함수를 호출해서 일감(입출력 작업)을		
+		가지고 올 때 어떤 일감인지를 구별하기 위한 키값을 의미하기 때문에 아무값이나 넘겨주면
+		된다. 마지막 네 번째 인자값은 활용할 최대 쓰레드의 개수를 의미하는데 그냥 0을 넘겨주면
+		최대 코어 개수만큼 할당이 되기 때문에 0을 넘겨줘도 상관없다. 참고로 해당 함수가 자동으로
+		쓰레드를 생성해 주는 것은 아니고 직접 쓰레드를 생성해서 나중에 GetQueuedCompletionStatus
+		함수를 통해 Completion Port를 직접 체크하는 방식으로 동작을 하게 될 것이다(설명이 모호함)
+		코드를 보면 생각보다 단순하다 */
+		CreateIoCompletionPort((HANDLE)ClientSocket, IocpHandle, (ULONG_PTR)session, 0);
+		 	
+		WSABUF wasBuf;
+		wasBuf.buf = session->recvBuffer;
+		wasBuf.len = BUFSIZE;
 
-			if (WSARecv(ClientSocket, &wasBuf, 1, &recvLen, &flags,
-				&session.overlapped, RecvCallback) == SOCKET_ERROR)
-			{
-				if (WSAGetLastError() == WSA_IO_PENDING)
-				{
-					// 콜백 방식이기 때문에 Alertable Wait 상태로 바꿔야한다.
+		OverlappedEx* overlappedEx = new OverlappedEx();
+		overlappedEx->iType = IO_TYPE::READ;
 
-					/* WSAWaitForMultipleEvents는 다수의 이벤트를 확인하는 
-					방식으로 만들 수 있었는데 해당 함수는 64개의 이벤트만을
-					처리할 수 있다는 단점이 있다. 
+		DWORD recvLen = 0;
+		DWORD flag = 0;
+ 
+		WSARecv(ClientSocket, &wasBuf, 1, &recvLen, &flag, &overlappedEx->overlapped, 
+				NULL);
 
-					반면, CallBack 방식의 경우 SleepEx 함수를 호출하는 순간
-					APC Queue에 저장되어 있는 콜백 함수들을 모두 호출하는
-					식으로 동작하기 때문에 클라이언트 개수만큼 이벤트를
-					할당할 필요가 없다는 장점이 있다 */
-					SleepEx(INFINITE, TRUE);
-				}
-				else
-				{
-					// TODO : 문제 상황
-					break;
-				}
-			}
-			else
-			{
-				cout << "Data Recv Len = " << recvLen << '\n';
-			}
-		}
-		
-		closesocket(session.socket);
 	}
 
+	GThreadManager->Join();
+	
 	WSACleanup();
 
 	return 0;
