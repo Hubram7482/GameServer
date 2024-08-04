@@ -1,2 +1,2 @@
 ﻿  GameServer.cpp
-  GameServer.vcxproj -> C:\Users\super\OneDrive\LinkedGit\GameServer\Binary\Debug\GameServer.exe
+LINK : fatal error LNK1104: 'C:\Users\super\OneDrive\LinkedGit\GameServer\Binary\Debug\GameServer.exe' 파일을 열 수 없습니다.
