@@ -97,8 +97,6 @@ bool SocketUtils::Bind(SOCKET socket, NetAddress netAddr)
 {
 	return SOCKET_ERROR != bind(socket, reinterpret_cast<const SOCKADDR*>(&netAddr.GetSockAddr()),
 								sizeof(SOCKADDR_IN));
-
-	return false;
 }
 
 bool SocketUtils::BindAnyAddress(SOCKET socket, uint16 port)

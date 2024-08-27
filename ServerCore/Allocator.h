@@ -41,7 +41,7 @@ public:
 class PoolAllocator
 {
 public:
-	static void* Alloc(int32 size);
+	static void*	Alloc(int32 size);
 	static void		Release(void* ptr);
 };
 
@@ -66,15 +66,16 @@ public:
 	{
 		// 메모리 사이즈 계산
 		const int32 iSize = static_cast<int32>(_Count * sizeof(T));
-		return static_cast<T*>(Xalloc(iSize));
+		return static_cast<T*>(PoolAllocator::Alloc((iSize)));
 	}
 
 	void deallocate(T* _pPtr, size_t _Count)
 	{
-		Xrelease(_pPtr);
+		PoolAllocator::Release(_pPtr);
 	}
 
 private:
 
 
 };
+

@@ -30,22 +30,31 @@ Regsiter 함수를 통해서 관찰할 소켓을 등록하고 Dispatch 함수를
 4. 완료된 일감이 있다면 대기 상태에서 빠져나옴과 동시에 
 완료된 입출력 작업에 대한 정보를 반환한다.
 5. 위 과정에서 IOCP는 대기 중인 쓰레드(Worker Thread)하나를 
-활성화하여 완료된 작업을 처리한다 */
+활성화하여 완료된 작업을 처리한다
+
+추가 설명글
+연결된 소켓이 입출력이 완료되면 Completion Packet을 만들고 
+Completion Packet은 입출력이 완료한 소켓에 대한 정보등에 
+대한 데이터 묶음을 의미하는데 해당 Packet을 Completion Queue에
+집어 넣고 쓰레드는 큐에서 Packet을 꺼내서 내용을 처리한다 */
+
 class IocpCore
 {
 public:
 	IocpCore();
 	~IocpCore();
 
-	HANDLE GetHandle() { return m_IocpHandle; }
+	HANDLE	GetHandle() { return m_IocpHandle; }
 
 	// 소켓을 Iocp에 등록하는 함수
-	bool Register(class IocpObject* _pIocpObject);
+	bool	Register(class IocpObject* _pIocpObject);
 	// 쓰레드들이 Iocp에 일감이 있는지 확인하는 함수
-	bool Dispatch(uint32 TimeOutMs = INFINITE);
+	bool	Dispatch(uint32 TimeOutMs = INFINITE);
 
 private:
-	HANDLE m_IocpHandle;
+	HANDLE	m_IocpHandle;
 
 };
 
+// Temp
+extern IocpCore GIocpCore;

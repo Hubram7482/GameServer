@@ -1,25 +1,35 @@
 ﻿#include "pch.h"
-
+#include <iostream>
+#include "CorePch.h"
 #include <atomic>
 #include <mutex>
+#include <windows.h>
 #include <future>
-#include <thread>
-#include <functional>
-#include <queue>
 #include "ThreadManager.h"
 
+
 #include "SocketUtils.h"
+#include "Listener.h"
+
 
 int main()
 {
-	SOCKET socket = SocketUtils::CreateSocket();
-	
-	SocketUtils::BindAnyAddress(socket, 7777);
-	SocketUtils::Listen(socket);
+	// TEMP
+	Listener pListener;
+	pListener.StartAccept(NetAddress(L"192.168.0.5", 7777));
 
-	accept(socket, nullptr, nullptr);
+	for (int32 i = 0; i < 5; ++i)
+	{
+		GThreadManager->Launch([=]()
+			{
+				while (true)
+				{
+					GIocpCore.Dispatch();
+				}
+			});
+	}
 
-	cout << "Client Connect!" << '\n';
+	GThreadManager->Join();
 
 	return 0;
 }

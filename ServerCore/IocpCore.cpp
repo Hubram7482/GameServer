@@ -2,6 +2,9 @@
 #include "IocpCore.h"
 #include "IocpEvent.h"
 
+// Temp
+IocpCore GIocpCore;
+
 IocpCore::IocpCore()
 {
 	// 핸들을 생성해준다
@@ -38,7 +41,7 @@ bool IocpCore::Dispatch(uint32 TimeOutMs)
 	m_IocpHanle(Completion Port), 
 	numOfButes(완료된 I/O 작업의 바이트를 저장할 변수),
 	pIocpObject(Completion Key(완료된 입출력 작업을 구분하기 위한 키값),
-	pIocpEvent(완료된 I/O 작업의 대한 OVERLAPPED 구조체 포인터 변수)) */
+	pIocpEvent(완료된 I/O 작업에 대한 OVERLAPPED 구조체 포인터 변수)) */
 	if (GetQueuedCompletionStatus(m_IocpHandle, OUT & numOfBytes, OUT reinterpret_cast<PULONG_PTR>(&pIocpObject),
 		OUT reinterpret_cast<LPOVERLAPPED*>(&pIocpEvent), TimeOutMs))
 	{
