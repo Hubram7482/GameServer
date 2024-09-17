@@ -5,7 +5,12 @@
 -------------------*/
 
 // 이전까지 사용했던 Session 구조체의 역할과 유사하다
-class IocpObject
+/* IocpObject 클래스가 상속 받고 있는 enable_shared_from_this 클래스는
+객체가 자기자신의 shared_ptr을 추출할 수 있도록 해주는데 해당 
+클래스의 내부를 간략하게 살펴보면 자기자신의 weak_ptr을 가지고 
+있고 이걸 이용해서 lock 함수를 통해 shared_ptr로 변환해서 넘겨주는
+방식으로 동작한다 */
+class IocpObject : public enable_shared_from_this<IocpObject>
 {
 public:
 	virtual HANDLE GetHandle() abstract;
@@ -47,7 +52,7 @@ public:
 	HANDLE	GetHandle() { return m_IocpHandle; }
 
 	// 소켓을 Iocp에 등록하는 함수
-	bool	Register(class IocpObject* _pIocpObject);
+	bool	Register(IocpObjectRef _pIocpObject);
 	// 쓰레드들이 Iocp에 일감이 있는지 확인하는 함수
 	bool	Dispatch(uint32 TimeOutMs = INFINITE);
 
@@ -55,6 +60,3 @@ private:
 	HANDLE	m_IocpHandle;
 
 };
-
-// Temp
-extern IocpCore GIocpCore;

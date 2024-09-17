@@ -45,11 +45,12 @@ public:
 
 	}
 
-	static shared_ptr<Type> MakeShared()
+	template<typename ...Args>
+	static shared_ptr<Type> MakeShared(Args&&... _Args)
 	{
 		// shared_ptr을 사용하여 객체를 생성/삭제시 
 		// 어떤 방식으로 동작할지를 지정해준다
-		shared_ptr<Type> pPtr = { Pop(), Push() };
+		shared_ptr<Type> pPtr = { Pop(forward<Args>(_Args)), Push() };
 		return pPtr;
 	}
 

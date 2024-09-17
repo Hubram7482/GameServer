@@ -7,28 +7,36 @@
 #include <future>
 #include "ThreadManager.h"
 
+#include "Service.h"
+#include "Session.h"
 
-#include "SocketUtils.h"
-#include "Listener.h"
+class GameSession : public Session
+{
 
+};
 
 int main()
 {
-	// TEMP
-	Listener pListener;
-	pListener.StartAccept(NetAddress(L"192.168.0.5", 7777));
+	ServerServiceRef pService = MakeShared<ServerService>(
+		NetAddress(L"192.168.0.5", 7777),
+		MakeShared<IocpCore>(),
+		MakeShared<GameSession>, // TODO : SessionManager 등등
+		100);
 
+	ASSERT_CRASH(pService->Start());
+
+	
 	for (int32 i = 0; i < 5; ++i)
 	{
 		GThreadManager->Launch([=]()
 			{
 				while (true)
 				{
-					GIocpCore.Dispatch();
+					pService->GetIocpCore()->Dispatch();
 				}
 			});
 	}
-
+	
 	GThreadManager->Join();
 
 	return 0;

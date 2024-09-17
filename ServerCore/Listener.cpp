@@ -3,6 +3,7 @@
 #include "SocketUtils.h"
 #include "IocpEvent.h"
 #include "Session.h"
+#include "Service.h"
 
 /* 헷갈릴때는 상속 관계를 보셈 */
 
@@ -19,15 +20,19 @@ Listener::~Listener()
 	}
 }
 
-bool Listener::StartAccept(NetAddress _NetAddress)
+bool Listener::StartAccept(ServerServiceRef _pService)
 {
+	m_pService = _pService;
+	if (m_pService == nullptr)
+		return false;
+
 	m_Socket = SocketUtils::CreateSocket();
 	if (m_Socket == INVALID_SOCKET)
 		return false;
 
 	/* Listen Socket 또한 마찬가지로 관찰해야 하는 
 	대상에 해당하기 때문에 IocpCore에 등록한다 */
-	if (GIocpCore.Register(this) == false)
+	if (m_pService->GetIocpCore()->Register(shared_from_this()) == false)
 		return false;
 
 	/* 소켓 재사용 여부를 설정한다. 재사용 여부를 설정하지 않았을 경우
@@ -38,7 +43,7 @@ bool Listener::StartAccept(NetAddress _NetAddress)
 	if (SocketUtils::SetLinger(m_Socket, 0, 0) == false)
 		return false;
 
-	if (SocketUtils::Bind(m_Socket, _NetAddress) == false)
+	if (SocketUtils::Bind(m_Socket, m_pService->GetNetAddress()) == false)
 		return false;
 
 	if (SocketUtils::Listen(m_Socket) == false)
@@ -48,10 +53,14 @@ bool Listener::StartAccept(NetAddress _NetAddress)
 	걸어주고 있는데 이렇게 하는 이유는 나중에 동접자가 많아지거나 하는 상황이 되었을때
 	일부 인원은 접속을 하지 못 하는 상황이 발생할 수도 있기 때문이다. 그래서 어느정도
 	여유분을 정해서 이벤트를 걸어주는 것이다 */
-	const int32 AcceptCnt = 1;
+	const int32 AcceptCnt = m_pService->GetMaxSessionCnt();
+
 	for (int32 i = 0; i < AcceptCnt; ++i)
 	{
 		AcceptEvent* pAcceptEvent = xnew<AcceptEvent>();
+		/* shared_from_this 함수를 사용하면 레퍼런스 카운트를 유지한채 
+		자기자신에 대한 shared_ptr을 추출할 수 있다 */
+		pAcceptEvent->m_pOwner = shared_from_this();
 		// 나중에 삭제할 수 있도록 보관
 		m_vecAcceptEvents.push_back(pAcceptEvent);
 		RegisterAccept(pAcceptEvent);
@@ -73,7 +82,7 @@ HANDLE Listener::GetHandle()
 void Listener::Dispatch(IocpEvent* _pIocpEvent, int32 _iNumOfBytes)
 {
 	// TODO 임시 코드(테스트용도)
-	ASSERT_CRASH(_pIocpEvent->GetType() == EventType::Accept);
+	ASSERT_CRASH(_pIocpEvent->m_EventType == EventType::Accept);
 	
 	AcceptEvent* pAcceptEvent = static_cast<AcceptEvent*>(_pIocpEvent);
 	ProcessAccept(pAcceptEvent);
@@ -87,10 +96,12 @@ void Listener::RegisterAccept(AcceptEvent* _pAcceptEvent)
 	/* AcceptEx()는 accept와 차이는 AcceptEx()는 미리 두개의 소켓, 
 	리슨 소켓과 접속을 받을 소켓을 미리 준비해야 한다는 점이다
 	그래서 해당 함수에서 Session을 생성하는거임 */
-	Session* pSession = xnew<Session>();
+
+	// Register IOCP(Completion Port)
+	SessionRef pSession = m_pService->CreateSession();
 	
 	_pAcceptEvent->Init();
-	_pAcceptEvent->SetSession(pSession);
+	_pAcceptEvent->m_pSession = pSession;
 
 	/* 세 번째 인자값으로 버퍼를 넘겨주는데, 왜 그런지 문서를 찾아보면
 	처음에 Connection을 할때 필요한 정보를 받아주기 위한 버퍼라고 써있음.
@@ -124,7 +135,7 @@ void Listener::ProcessAccept(AcceptEvent* _pAcceptEvent)
 	
 	/* 아래 로직처럼 작업을 완료한 소켓 등 데이터를 받아오기 
 	위해 AcceptEvent에 Session을 보관해놓은거다 */
-	Session* pSession = _pAcceptEvent->GetSession();
+	SessionRef pSession = _pAcceptEvent->m_pSession;
 	
 	if (!SocketUtils::SetUpdateAcceptSocket(pSession->GetSocket(), m_Socket))
 	{

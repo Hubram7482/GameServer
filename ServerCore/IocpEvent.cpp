@@ -2,7 +2,7 @@
 #include "IocpEvent.h"
 
 IocpEvent::IocpEvent(EventType _Type)
-	: m_Type(_Type)
+	: m_EventType(_Type)
 {
 	/* 생성자에서 Init 함수를 호출하는데 따로 Init 함수를 따로 생성해서
 	호출하는 이유는 Init 함수를 외부에서 호출하고 싶은 상황이 발생할 수

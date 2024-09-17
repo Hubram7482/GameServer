@@ -28,11 +28,10 @@ public:
 	IocpEvent(EventType _Type);
 
 	void	  Init();
-	EventType GetType() { return m_Type; }
 
-protected:
-	EventType m_Type; 
-	
+public:
+	EventType m_EventType; 
+	IocpObjectRef m_pOwner;
 };
 
 /* EventType을 분류해서 관리하는 이유는 각 타입마다 필요로 하는
@@ -64,11 +63,9 @@ class AcceptEvent : public IocpEvent
 public:
 	AcceptEvent() : IocpEvent(EventType::Accept) { }
 
-	void		SetSession(Session* _pSession) { m_pSession = _pSession; }
-	Session*	GetSession() { return m_pSession; }
 
-private:
-	Session*	m_pSession = { nullptr };
+public:
+	SessionRef	m_pSession = { nullptr };
 
 };
 
