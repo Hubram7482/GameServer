@@ -22,6 +22,8 @@ void SocketUtils::Init()
 	더미 소켓을 넘겨주고 두 번째 인자값으로는 찾아오고 싶은
 	함수를 넣어준다. 마지막으로 세 번째 인자값으로는 함수
 	포인터를 넘겨준다 */
+
+	// TODO 문서 찾아보자
 	ASSERT_CRASH(BindWindowsFunction(DummySocket, WSAID_CONNECTEX, reinterpret_cast<LPVOID*>(&ConnectEx)));
 	ASSERT_CRASH(BindWindowsFunction(DummySocket, WSAID_DISCONNECTEX, reinterpret_cast<LPVOID*>(&DisConnectEx)));
 	ASSERT_CRASH(BindWindowsFunction(DummySocket, WSAID_ACCEPTEX, reinterpret_cast<LPVOID*>(&AcceptEx)));

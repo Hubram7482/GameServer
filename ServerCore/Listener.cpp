@@ -111,7 +111,7 @@ void Listener::RegisterAccept(AcceptEvent* _pAcceptEvent)
 	DWORD BytesReceived = { 0 };
 	
 	// AcceptEx가 무슨 역할인지 헷갈리면 생성해주는 부분 보셈
-	if (false == SocketUtils::AcceptEx(m_Socket, pSession->GetSocket(), pSession->m_chRecvBuffer, 0, sizeof(SOCKADDR_IN) + 16,
+	if (false == SocketUtils::AcceptEx(m_Socket, pSession->GetSocket(), pSession->m_RecvBuffer.WritePos(), 0, sizeof(SOCKADDR_IN) + 16,
 		sizeof(SOCKADDR_IN) + 16, OUT & BytesReceived, static_cast<LPOVERLAPPED>(_pAcceptEvent)))
 	{
 		const int32 iErrorCode = WSAGetLastError();
@@ -125,7 +125,6 @@ void Listener::RegisterAccept(AcceptEvent* _pAcceptEvent)
 			RegisterAccept함수를 호출해서 AcceptEx가 걸릴때까지 반복하는 것이다
 			(위 설명에 문제가 있을 수도 있으니까 나중에 보고 틀리면 수정하셈) */
 		}
-
 	}
 
 }
@@ -144,6 +143,8 @@ void Listener::ProcessAccept(AcceptEvent* _pAcceptEvent)
 		RegisterAccept(_pAcceptEvent);
 		return;
 	}
+
+	// getpeername를 통해서 NetAddress정보를 추출
 	SOCKADDR_IN SockAddress;
 	int32 iSizeOfSockAddress = sizeof(SockAddress);
 	if (SOCKET_ERROR == getpeername(pSession->GetSocket(),
@@ -153,10 +154,10 @@ void Listener::ProcessAccept(AcceptEvent* _pAcceptEvent)
 		return;
 	}
 
-	// getpeername를 통해서 NetAddress정보를 추출후 설정
-	pSession->SetNetAddress(NetAddress(SockAddress));
-
 	cout << "Client Connected" << '\n';
+
+	pSession->SetNetAddress(NetAddress(SockAddress));
+	pSession->ProcessConnect();
 
 	/* 그리고 _pAcceptEvent를 사용하고 나서 삭제를 하는	것이 아니라 계속 
 	재사용한다는 것을 알 수 있다(Accept를 걸어준다)) */

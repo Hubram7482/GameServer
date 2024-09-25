@@ -22,6 +22,7 @@ void Service::CloseService()
 SessionRef Service::CreateSession()
 {
 	SessionRef pSession = m_SessionFactory();
+	pSession->SetService(shared_from_this());
 
 	if (m_pIocpCore->Register(pSession) == false)
 	{
@@ -66,6 +67,18 @@ ClientService::~ClientService()
 bool ClientService::Start()
 {
 	// TODO
+	if (CanStart() == false)
+		return false;
+
+	const int32 iSessionCnt = GetMaxSessionCnt();
+
+	for (int32 i = 0; i < iSessionCnt; ++i)
+	{
+		SessionRef pSession = CreateSession();
+		if (pSession->Connect() == false)
+			return false;
+
+	}
 
 	return true;
 }
